@@ -11,7 +11,7 @@ reticulate::use_condaenv("myenv", required = TRUE)
 library(keras)
 
 source("./source/run_rvgaw_arfima.R")
-source("./source/compute_grad.R")
+source("./source/compute_grad_ss.R")
 
 ################## Some code to limit tensorflow memory usage ##################
 
@@ -60,11 +60,10 @@ arfima_spec_dens <- function(n, phi, d, theta, noise_var, nu) {
     powers <- lapply(1:length(theta), function(i) theta[i] * arg^i)
     Theta_q <- 1 + Reduce(`+`, powers)
     
-    cat("T1 = ", noise_var/(2*pi), "\n")
-    cat("T2 = ", Mod(1 - exp(-1i * freq[1]))^(-2 * d), "\n")
-    cat("T3 = ", head(Mod(Theta_q / Phi_p)^2, 1), "\n")
-
-    cat("T4 = ", Mod(Theta_q)[1], ", T5 = ", Mod(Phi_p)[1], "\n")
+    # cat("T1 = ", noise_var/(2*pi), "\n")
+    # cat("T2 = ", Mod(1 - exp(-1i * freq[1]))^(-2 * d), "\n")
+    # cat("T3 = ", head(Mod(Theta_q / Phi_p)^2, 1), "\n")
+    # cat("T4 = ", Mod(Theta_q)[1], ", T5 = ", Mod(Phi_p)[1], "\n")
 
   # Compute the spectral density
 
@@ -77,9 +76,9 @@ arfima_spec_dens <- function(n, phi, d, theta, noise_var, nu) {
               spec_dens_eps = spec_dens_eps))
 } 
 
-phi <- c(0.2)
-theta <- c(0.9)
-d <- 0.25
+phi <- 0.7
+theta <- 0.3
+d <- 0.15
 sigma_eta <- 1
 n <- 1000
 nu <- 10
@@ -94,17 +93,20 @@ freq <- 2 * pi * k_in_likelihood / n
 
 test2 <- spectral.density(ar = phi, ma = theta, d = d, sd = sigma_eta, lambda = freq)
 png("~/R-VGA-Whittle/06_ARFIMA/plots/arfima_spec_dens.png", width = 800, height = 600)
-plot(test2, type = "l", main = paste0("ARFIMA(2, ", d, ", 1)"), 
+plot(freq, test2, type = "l", main = paste0("ARFIMA(1, ", d, ", 1) with phi = ", phi,
+     ", theta = ", theta, ", sigma_eta = ", sigma_eta), 
      xlab = "Frequency", ylab = "Spectral Density", ylim = c(0, max(test2)))
-lines(test1$spec_dens_x, col = "red")
+lines(freq, test1$spec_dens_x, col = "red")
 legend("topright", legend = c("LSTS", "manual"), col = c("black", "red"), lty = 1)
 dev.off()
+
 
 
 ## Tensorflow version
 
 s1 <- c(atanh(phi), atanh(theta), atanh(2*d), log(sigma_eta^2), log(nu-2))
-s2 <- c(atanh(0.3), atanh(0.7), 0.2, log(1), log(nu-2))
+s2 <- c(atanh(phi), atanh(theta), atanh(2*d), log(sigma_eta^2), log(nu-2))
+# s2 <- c(atanh(0.3), atanh(0.7), 0.2, log(1), log(nu-2))
 
 S <- 2L
 samples_tf <- tf$Variable(t(matrix(c(s1, s2), nrow = length(s1), ncol = S)), dtype = "float64")
@@ -152,13 +154,20 @@ samples_tf <- tf$Variable(t(matrix(c(s1, s2), nrow = length(s1), ncol = S)), dty
 # spec_dens_eps_tf <- tf$multiply(tf$constant(1 / (2*pi), dtype = "float64"), tf$divide(nu_s, nu_s - 2))
 
 
-
 # Maybe feed this through the compute_grad function itself?
+I_i <- 1
+spec_dens <- test1$spec_dens_x + test1$spec_dens_eps
+log_likelihood <- - log(spec_dens) - I_i / spec_dens
+print(head(log_likelihood))
 
-test <- compute_grad(samples_tf = samples_tf, I_i = 1, 
+tf_out <- compute_grad(samples_tf = samples_tf, I_i = I_i, 
                     freq_i = freq[2], blocksize = 1L)
-head(test$spec_dens_x_tf)
+head(tf_out$spec_dens_x_tf)
 head(test1$spec_dens_x)
 
-head(test$spec_dens_eps_tf)
+head(tf_out$spec_dens_eps_tf)
 head(test1$spec_dens_eps)
+
+## Log likelihood
+
+tf_out$log_likelihood

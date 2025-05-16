@@ -7,10 +7,12 @@ library(arfima)
 library(tensorflow)
 reticulate::use_condaenv("myenv", required = TRUE)
 library(keras)
+library(ggplot2)
+library(gridExtra)
 
 source("./source/run_rvgaw_arfima.R")
 source("./source/compute_periodogram.R")
-source("./source/compute_grad.R")
+source("./source/compute_grad_ss.R")
 
 ################## Some code to limit tensorflow memory usage ##################
 
@@ -37,37 +39,35 @@ if (length(gpus) > 0) {
 ################## End of code to limit tensorflow memory usage ##################
 
 
-## Simulate ARFIMA(1, 0.25, 1) process
-set.seed(2025)
-n <- 10000
-phi <- 0.5
-theta <- 0.9
-d <- 0.25
-sigma_eta <- 1
-# nu <- 5
-x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta))
-# y <- x + rt(n, df = nu) # ARFIMA + noise
+## Flags
+date <- "20250514"
+save_rvgaw_results <- T
+
+## Read data
+data_dir <- "./data/"
+arfima_data <- readRDS(paste0(data_dir, "arfima_data.rds"))
+y <- arfima_data$y
+phi <- arfima_data$phi
+theta <- arfima_data$theta
+d <- arfima_data$d
+sigma_eta <- arfima_data$sigma_eta
+nu <- arfima_data$nu
+n <- length(y)
 
 png("sim.png", width = 800, height = 600)
-# par(mfrow = c(2, 1))
-plot(x[1:200], type = "l", main = paste0("ARFIMA(1, ", d, ", 1)"))
-# plot(sim2[1:200], type = "l", main = "ARFIMA(2,0,1), dfrac = 0")
+plot(y[1:200], type = "l", main = paste0("ARFIMA(1, ", d, ", 1)"))
 dev.off()
 
-## MLE fit using arfima package
-# fit <- arfima(x, order = c(1, 0, 1), back=TRUE)
-
-
 ## Result directory
-result_directory <- "./results/"
+result_dir <- "./results/"
 
 ## Flags
-date <- "20230525"
+date <- "20250514"
 
 ## Common settings for all methods
 n_post_samples <- 10000
-prior_mean <- rep(0, 4)
-prior_var <- diag(4) # identity matrix
+prior_mean <- c(0, 0, 0, 0, 2)
+prior_var <- diag(c(1, 1, 1, 1, 0.5)) # identity matrix
 
 ## Simulate from prior
 prior_samples <- rmvnorm(10000, prior_mean, prior_var)
@@ -75,10 +75,10 @@ phi_samples <- tanh(prior_samples[, 1])
 theta_samples <- tanh(prior_samples[, 2])
 d_samples <- 0.5 * tanh(prior_samples[, 3]) 
 sigma_eta_samples <- sqrt(exp(prior_samples[, 4]))
-# nu_samples <- 2 + exp(prior_samples[, 5])
+nu_samples <- 2 + exp(prior_samples[, 5])
 
-png("./plots/prior_arfima.png", width = 800, height = 600)
-par(mfrow = c(2, 2))
+png("./plots/prior.png", width = 800, height = 600)
+par(mfrow = c(2, 3))
 plot(density(phi_samples), main = "phi", xlim = c(-1, 1))
 abline(v = phi, col = "red", lty = 2)
 plot(density(theta_samples), main = "theta", xlim = c(-1, 1))
@@ -87,14 +87,14 @@ plot(density(d_samples), main = "d", xlim = c(0, 1))
 abline(v = d, col = "red", lty = 2)
 plot(density(sigma_eta_samples), main = "sigma_eta", xlim = c(0, 5))
 abline(v = sigma_eta, col = "red", lty = 2) 
-# plot(density(nu_samples), main = "nu", xlim = c(0, 20))
-# abline(v = nu, col = "red", lty = 2)
+plot(density(nu_samples), main = "nu", xlim = c(0, 20))
+abline(v = nu, col = "red", lty = 2)
 dev.off()
 
 ##########################################
 ##            R-VGA-Whittle             ##
 ##########################################
-S <- 100L
+S <- 200L
 use_tempering <- TRUE
 temper_first <- T
 reorder <- 0 #"decreasing"
@@ -102,8 +102,8 @@ blocksize <- 1L
 n_indiv <- 1L
 
 if (use_tempering) {
-  n_temper <- 10
-  K <- 1000
+  n_temper <- 5
+  K <- 100
   temper_schedule <- rep(1/K, K)
   temper_info <- ""
   if (temper_first) {
@@ -132,10 +132,10 @@ if (!is.null(blocksize)) {
   block_info <- ""
 }
 
-rvgaw_filepath <- paste0(result_directory, "rvga_whittle_results_n", n,
+rvgaw_filepath <- paste0(result_dir, "rvga_whittle_results_n", n,
                         temper_info, reorder_info, block_info, "_", date, ".rds")
 
-rvgaw_results <- run_rvgaw_arfima(data = x, #sigma_eta = sigma_eta, sigma_eps = sigma_eps, 
+rvgaw_results <- run_rvgaw_arfima(data = y, #sigma_eta = sigma_eta, sigma_eps = sigma_eps, 
                                   prior_mean = prior_mean, prior_var = prior_var, 
                                   deriv = "tf", 
                                   S = S, n_post_samples = n_post_samples,
@@ -155,21 +155,54 @@ rvgaw.phi <- rvgaw_results$post_samples$phi
 rvgaw.theta <- rvgaw_results$post_samples$theta
 rvgaw.d <- rvgaw_results$post_samples$d
 rvgaw.sigma_eta <- rvgaw_results$post_samples$sigma_eta
-# rvgaw.nu <- rvgaw_results$post_samples$nu
+rvgaw.nu <- rvgaw_results$post_samples$nu
+
+rvgaw_df <- data.frame(
+    phi = rvgaw.phi,
+    theta = rvgaw.theta,
+    d = rvgaw.d,
+    sigma_eta = rvgaw.sigma_eta,
+    nu = rvgaw.nu
+)
+
+plots <- list()
+
+param_names <- c("phi", "theta", "d", "sigma_eta", "nu")
+param_values <- c(phi, theta, d, sigma_eta, nu)
+for (p in 1:length(param_names)) {
+    true_vals_df <- data.frame(name = param_names[p], val = param_values[p])
+
+    plot <- ggplot(rvgaw_df, aes(x = .data[[param_names[p]]])) +
+        geom_density(col = "red", lwd = 1) +
+        geom_density(data = rvgaw_df, col = "goldenrod", lwd = 1) +
+        geom_vline(
+            data = true_vals_df, aes(xintercept = val),
+            color = "black", linetype = "dashed", linewidth = 1
+        ) +
+        labs(x = vars) +
+        theme_bw() +
+        theme(axis.title = element_blank(), text = element_text(size = 24)) +
+        scale_x_continuous(breaks = scales::pretty_breaks(n = 4))
+
+    plots[[p]] <- plot
+}
 
 png("./plots/rvgaw_posterior.png", width = 800, height = 600)
-par(mfrow = c(2, 3))
-plot(density(rvgaw.phi), main = "phi", xlim = c(-1, 1))
-abline(v = phi, col = "red", lty = 2)
-plot(density(rvgaw.theta), main = "theta", xlim = c(-1, 1))
-abline(v = theta, col = "red", lty = 2)
-plot(density(rvgaw.d), main = "d", xlim = c(0, 1))
-abline(v = d, col = "red", lty = 2)
-plot(density(rvgaw.sigma_eta), main = "sigma_eta", xlim = c(0, 5))
-abline(v = sigma_eta, col = "red", lty = 2)
-# plot(density(rvgaw.nu), main = "nu", xlim = c(0, 20))
-# abline(v = nu, col = "red", lty = 2)
+grid.arrange(grobs = plots, ncol = 3)
 dev.off()
 
 
-mu <- rvgaw_results$mu
+# png("./plots/rvgaw_posterior.png", width = 800, height = 600)
+# par(mfrow = c(2, 3))
+# plot(density(rvgaw.phi), main = "phi", xlim = c(-1, 1))
+# abline(v = phi, col = "red", lty = 2)
+# plot(density(rvgaw.theta), main = "theta", xlim = c(-1, 1))
+# abline(v = theta, col = "red", lty = 2)
+# plot(density(rvgaw.d), main = "d", xlim = c(0, 1))
+# abline(v = d, col = "red", lty = 2)
+# plot(density(rvgaw.sigma_eta), main = "sigma_eta", xlim = c(0, 5))
+# abline(v = sigma_eta, col = "red", lty = 2)
+# plot(density(rvgaw.nu), main = "nu", xlim = c(0, 20))
+# abline(v = nu, col = "red", lty = 2)
+# dev.off()
+

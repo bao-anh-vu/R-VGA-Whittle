@@ -7,7 +7,7 @@ compute_periodogram <- function(data) {
     freq <- 2 * pi * k_in_likelihood / n
 
     ## Fourier transform of the observations
-    fourier_transf <- fft(y)
+    fourier_transf <- fft(data)
     periodogram <- 1/n * Mod(fourier_transf)^2
     I <- periodogram[k_in_likelihood + 1]
 

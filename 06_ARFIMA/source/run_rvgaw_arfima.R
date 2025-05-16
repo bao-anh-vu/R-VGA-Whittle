@@ -1,4 +1,4 @@
-run_rvgaw_arfima <- function(y, phi = NULL, sigma_eta = NULL, sigma_eps = NULL,
+run_rvgaw_arfima <- function(data, phi = NULL, sigma_eta = NULL, sigma_eps = NULL,
                            transform = "arctanh",
                            prior_mean = 0, prior_var = 1,
                            deriv = "tf", S = 1000L,
@@ -17,7 +17,7 @@ run_rvgaw_arfima <- function(y, phi = NULL, sigma_eta = NULL, sigma_eps = NULL,
 
     rvgaw.t1 <- proc.time()
 
-    n <- length(y)
+    n <- length(data)
 
     rvgaw.mu_vals <- list()
     rvgaw.mu_vals[[1]] <- prior_mean
@@ -26,7 +26,7 @@ run_rvgaw_arfima <- function(y, phi = NULL, sigma_eta = NULL, sigma_eps = NULL,
     rvgaw.prec[[1]] <- chol2inv(chol(prior_var))
 
     # Compute the periodogram
-    pgram_output <- compute_periodogram(y)
+    pgram_output <- compute_periodogram(data = data)
     freq <- pgram_output$freq
     I <- pgram_output$periodogram
 
@@ -202,6 +202,7 @@ run_rvgaw_arfima <- function(y, phi = NULL, sigma_eta = NULL, sigma_eps = NULL,
     rvgaw.d <- 0.5 * tanh(theta.post_samples[, 3])
     rvgaw.sigma_eta <- sqrt(exp(theta.post_samples[, 4]))
     rvgaw.nu <- 2 + exp(theta.post_samples[, 5])
+
 
     rvgaw.post_samples <- list(
         phi = rvgaw.phi,
