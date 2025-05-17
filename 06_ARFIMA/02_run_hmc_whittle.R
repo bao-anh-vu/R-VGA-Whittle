@@ -36,13 +36,13 @@ hmcw_filepath <- paste0(result_dir, "hmcw_results_n", n,
 
   
 ## HMC-Whittle parameters 
-n_chains <- 1
-n_post_samples <- 5000
-burn_in <- 1000
+n_chains <- 2
+n_post_samples <- 10000
+burn_in <- 5000
 
 ## Prior parameters
-prior_mean <- c(0, 0, 0, 0, 2)
-diag_prior_var <- c(1, 1, 1, 1, 0.5) # identity matrix
+prior_mean <- c(0, 0, 0, 0, -1)
+diag_prior_var <- c(1, 1, 1, 1, 1) # identity matrix
 
 # Compute periodogram
 pgram_output <- compute_periodogram(y)
@@ -63,12 +63,12 @@ fit_stan_arfima_whittle <- whittle_arfima_model$sample(
     whittle_arfima_data,
     chains = n_chains,
     threads = parallel::detectCores(),
-    refresh = 100,
-    iter_warmup = burn_in / n_chains,
-    iter_sampling = n_post_samples / n_chains
+    refresh = 500,
+    iter_warmup = burn_in,
+    iter_sampling = n_post_samples
 )
 
-hmcw_results <- list(draws = fit_stan_arfima_whittle$draws(variables = c("phi", "theta", "sigma_eta", "d", "nu")),
+hmcw_results <- list(draws = fit_stan_arfima_whittle$draws(variables = c("phi", "theta", "d", "sigma_eta", "nu")),
                     time = fit_stan_arfima_whittle$time,
                     summary = fit_stan_arfima_whittle$cmdstan_summary)
 # fit_stan_arfima_whittle$cmdstan_summary()
@@ -125,8 +125,13 @@ dev.off()
 png("./plots/hmcw_trace.png", width = 1000, height = 600)
 par(mfrow = c(3, 2))
 plot(hmcw.phi, type = "l")
+abline(h = phi, col = "red", lwd = 2, lty = 2)
 plot(hmcw.theta, type = "l")
+abline(h = theta, col = "red", lwd = 2, lty = 2)
 plot(hmcw.d, type = "l")
+abline(h = d, col = "red", lwd = 2, lty = 2)
 plot(hmcw.sigma_eta, type = "l")
+abline(h = sigma_eta, col = "red", lwd = 2, lty = 2)
 plot(hmcw.nu, type = "l")
+abline(h = nu, col = "red", lwd = 2, lty = 2)
 dev.off()

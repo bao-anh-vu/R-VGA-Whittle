@@ -12,7 +12,10 @@ functions {
     term2 = abs(1 - exp(-1i * freq))^(-2 * d);
     term3 = square(abs((1 + theta * exp(-1i * freq)) / (1 - phi * exp(-1i * freq))));
     spec_dens_x = term1 * term2 * term3;
-    spec_dens_eps = 1/(2*pi()) * (nu/(nu - 2));
+
+//    spec_dens_eps = 1/(2*pi()) * (nu/(nu - 2));
+//    spec_dens_eps = nu/(nu - 2);
+      spec_dens_eps = nu^2;
 
     spec_dens = spec_dens_x + spec_dens_eps;
 
@@ -50,7 +53,8 @@ transformed parameters {
     theta = tanh(tilde_theta); 
     d = 0.5 * tanh(tilde_d);
     sigma_eta = sqrt(exp(tilde_sigma_eta));
-    nu = 2 + exp(tilde_nu);
+//    nu = 2 + exp(tilde_nu);
+    nu = sqrt(exp(tilde_nu));
   
 }
 

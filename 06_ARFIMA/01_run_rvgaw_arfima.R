@@ -66,8 +66,8 @@ date <- "20250514"
 
 ## Common settings for all methods
 n_post_samples <- 10000
-prior_mean <- c(0, 0, 0, 0, 2)
-prior_var <- diag(c(1, 1, 1, 1, 0.5)) # identity matrix
+prior_mean <- c(0, 0, 0, 0, -1)
+prior_var <- diag(c(1, 1, 1, 1, 1)) # identity matrix
 
 ## Simulate from prior
 prior_samples <- rmvnorm(10000, prior_mean, prior_var)
@@ -75,7 +75,8 @@ phi_samples <- tanh(prior_samples[, 1])
 theta_samples <- tanh(prior_samples[, 2])
 d_samples <- 0.5 * tanh(prior_samples[, 3]) 
 sigma_eta_samples <- sqrt(exp(prior_samples[, 4]))
-nu_samples <- 2 + exp(prior_samples[, 5])
+# nu_samples <- 2 + exp(prior_samples[, 5])
+nu_samples <- sqrt(exp(prior_samples[, 5]))
 
 png("./plots/prior.png", width = 800, height = 600)
 par(mfrow = c(2, 3))
