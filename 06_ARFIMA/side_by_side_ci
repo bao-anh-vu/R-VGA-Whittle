@@ -1,0 +1,29 @@
+## Test side by side CI
+
+library(dplyr)
+library(tidyr)
+library(ggplot2)
+x <- c(3.409091, 4.090909, 4.772728, 5.454546)
+data <- structure(list(approach1 = c(1.02967633502518, 1.01580726843304, 1.04284139608584, 
+                                     1.04357840118423), approach2 = c(1.0173503641109, 1.00394712634612, 
+                                                                      1.02773624467658, 1.02863476832808)), class = "data.frame", row.names = c(NA, 
+                                                                                                                                                -4L))
+
+data.lower <- structure(list(approach1 = c(1.0115541354025, 0.993078788685045, 1.01974099190034, 
+                                           1.02080115708828), approach2 = c(0.997978808683001, 0.982131487818724, 
+                                                                            1.00420304483585, 1.00652657076137)), row.names = c(NA, -4L), class = "data.frame")
+
+data.upper <- structure(list(approach1 = c(1.05177371364311, 1.03851495380357, 1.06108886027293, 
+                                           1.06774282552092), approach2 = c(1.03841840431302, 1.0260370212124, 
+                                                                            1.04663363856828, 1.0525347857539)), row.names = c(NA, -4L), class = "data.frame")
+
+
+data_longer <- bind_cols(
+  data %>% mutate(x = x) %>% pivot_longer(-x, values_to = "data"),
+  data.lower %>% pivot_longer(everything()) %>% select(lower = value),
+  data.upper %>% pivot_longer(everything()) %>% select(upper = value)
+) 
+
+data_longer %>%
+  ggplot(aes(x, data, color = name, ymin = lower, ymax = upper)) +
+  geom_errorbar(position = "dodge")

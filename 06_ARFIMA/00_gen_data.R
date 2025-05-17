@@ -4,9 +4,9 @@ setwd("~/R-VGA-Whittle/06_ARFIMA")
 
 library(mvtnorm)
 library(arfima)
-library(LSTS)
-library(fracdiff)
-library(polynom)
+# library(LSTS)
+# library(fracdiff)
+# library(polynom)
 # source("./source/run_rvgaw_arfima.R")
 # source("./source/compute_periodogram.R")
 # source("./source/compute_grad_ss.R")
@@ -14,12 +14,13 @@ library(polynom)
 ## Simulate ARFIMA(1, 0.25, 1) process
 set.seed(2025)
 n <- 5000
-phi <- 0.7
-theta <- 0.3
-d <- 0.15
+phi <- 0.2
+theta <- 0.5
+d <- 0.25
 sigma_eta <- 1
 nu <- 10
-x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
+# x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
+x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d)$series
 y <- x + rt(n, df = nu) # ARFIMA + noise
 
 png("sim.png", width = 800, height = 600)
@@ -42,8 +43,8 @@ data <- list(
 saveRDS(data, file = "./data/arfima_data.rds")
 
 ## MLE fit using arfima package
-fit <- arfima(x, order = c(1, 0, 1), back=TRUE)
-print(fit)
+# fit <- arfima(x, order = c(1, 0, 1), back=TRUE)
+# print(fit)
 
 # Call:
 # arfima(z = x, order = c(1, 0, 1), back = TRUE)

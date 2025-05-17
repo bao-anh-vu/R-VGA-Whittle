@@ -102,7 +102,7 @@ blocksize <- 1L
 n_indiv <- 1L
 
 if (use_tempering) {
-  n_temper <- 5
+  n_temper <- 25
   K <- 100
   temper_schedule <- rep(1/K, K)
   temper_info <- ""
