@@ -36,13 +36,13 @@ hmcw_filepath <- paste0(result_dir, "hmcw_results_n", n,
 
   
 ## HMC-Whittle parameters 
-n_chains <- 2
+n_chains <- 1
 n_post_samples <- 10000
-burn_in <- 5000
+burn_in <- 1000
 
 ## Prior parameters
-prior_mean <- c(0, 0, 0, 0, -1)
-diag_prior_var <- c(1, 1, 1, 1, 1) # identity matrix
+prior_mean <- c(0, 0, 0, 0) #, -1)
+diag_prior_var <- c(1, 1, 1, 1) #, 1) # identity matrix
 
 # Compute periodogram
 pgram_output <- compute_periodogram(y)
@@ -57,6 +57,7 @@ whittle_arfima_model <- cmdstan_model(
 )
 
 whittle_arfima_data <- list(nfreq = length(freq), freqs = freq, periodogram = I,
+                            nu = nu, 
                             prior_mean = prior_mean, diag_prior_var = diag_prior_var)
 
 fit_stan_arfima_whittle <- whittle_arfima_model$sample(
@@ -68,7 +69,7 @@ fit_stan_arfima_whittle <- whittle_arfima_model$sample(
     iter_sampling = n_post_samples
 )
 
-hmcw_results <- list(draws = fit_stan_arfima_whittle$draws(variables = c("phi", "theta", "d", "sigma_eta", "nu")),
+hmcw_results <- list(draws = fit_stan_arfima_whittle$draws(variables = c("phi", "theta", "d", "sigma_eta")),
                     time = fit_stan_arfima_whittle$time,
                     summary = fit_stan_arfima_whittle$cmdstan_summary)
 # fit_stan_arfima_whittle$cmdstan_summary()
@@ -83,22 +84,22 @@ hmcw.phi <- c(hmcw_results$draws[,,1])
 hmcw.theta <- c(hmcw_results$draws[,,2])
 hmcw.d <- c(hmcw_results$draws[,,3])
 hmcw.sigma_eta <- c(hmcw_results$draws[,,4])
-hmcw.nu <- c(hmcw_results$draws[,,5])
+# hmcw.nu <- c(hmcw_results$draws[,,5])
 
 hmcw_df <- data.frame(
     phi = hmcw.phi,
     theta = hmcw.theta,
     d = hmcw.d,
-    sigma_eta = hmcw.sigma_eta,
-    nu = hmcw.nu
+    sigma_eta = hmcw.sigma_eta#,
+    # nu = hmcw.nu
 )
 
 ## Plot posterior distribution for each parameter
 
 plots <- list()
 
-param_names <- c("phi", "theta", "d", "sigma_eta", "nu")
-param_values <- c(phi, theta, d, sigma_eta, nu)
+param_names <- c("phi", "theta", "d", "sigma_eta")#, "nu")
+param_values <- c(phi, theta, d, sigma_eta)#, nu)
 for (p in 1:length(param_names)) {
     true_vals_df <- data.frame(name = param_names[p], val = param_values[p])
 
@@ -132,6 +133,6 @@ plot(hmcw.d, type = "l")
 abline(h = d, col = "red", lwd = 2, lty = 2)
 plot(hmcw.sigma_eta, type = "l")
 abline(h = sigma_eta, col = "red", lwd = 2, lty = 2)
-plot(hmcw.nu, type = "l")
-abline(h = nu, col = "red", lwd = 2, lty = 2)
+# plot(hmcw.nu, type = "l")
+# abline(h = nu, col = "red", lwd = 2, lty = 2)
 dev.off()
