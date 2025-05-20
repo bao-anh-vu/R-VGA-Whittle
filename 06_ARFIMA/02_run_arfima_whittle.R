@@ -21,10 +21,10 @@ save_hmcw_results <- T
 set.seed(2025)
 
 # Simulate ARMA(1,1) with ar = 0.9, ma = 0.5
-n <- 1000
-phi <- 0.2
-theta <- 0.5
-d <- 0.25
+n <- 10000
+phi <- 0.3
+theta <- 0.7
+d <- 0.15
 sigma_eta <- 1
 # x <- arfima.sim(n = n, model = list(ar = phi, ma = -theta, dfrac = 0))
 x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
@@ -61,7 +61,7 @@ hmcw_filepath <- paste0(result_dir, "hmcw_arfima_results_n", n,
   
 ## HMC-Whittle parameters 
 n_chains <- 1
-n_post_samples <- 5000
+n_post_samples <- 10000
 burn_in <- 1000#0
 
 ## Prior parameters
@@ -131,9 +131,9 @@ for (p in 1:length(param_names)) {
             data = true_vals_df, aes(xintercept = val),
             color = "black", linetype = "dashed", linewidth = 1
         ) +
-        labs(x = vars) +
+        # labs(x = vars) +
         theme_bw() +
-        theme(axis.title = element_blank(), text = element_text(size = 24)) +
+        # theme(axis.title = element_blank(), text = element_text(size = 24)) +
         scale_x_continuous(breaks = scales::pretty_breaks(n = 4))
 
     plots[[p]] <- plot

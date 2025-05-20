@@ -1,5 +1,6 @@
 run_rvgaw_arfima <- function(data, phi = NULL, sigma_eta = NULL, sigma_eps = NULL,
                            transform = "arctanh",
+                           noise_dist = "t",
                            prior_mean = 0, prior_var = 1,
                            deriv = "tf", S = 1000L,
                            n_post_samples = 10000,
@@ -158,7 +159,8 @@ run_rvgaw_arfima <- function(data, phi = NULL, sigma_eta = NULL, sigma_eps = NUL
             I_i_tf <- tf$constant(I[blockinds])
 
             tf_out_test <- compute_grad(samples_tf, I_i_tf, freq_i_tf,
-                                        blocksize = length(blockinds))
+                                        blocksize = length(blockinds),
+                                        noise_dist = noise_dist)
             E_grad_tf <- tf_out_test$E_grad
             E_hessian_tf <- tf_out_test$E_hessian
 
@@ -201,8 +203,12 @@ run_rvgaw_arfima <- function(data, phi = NULL, sigma_eta = NULL, sigma_eps = NUL
     rvgaw.theta <- tanh(theta.post_samples[, 2])
     rvgaw.d <- 0.5 * tanh(theta.post_samples[, 3])
     rvgaw.sigma_eta <- sqrt(exp(theta.post_samples[, 4]))
-    rvgaw.nu <- 2 + exp(theta.post_samples[, 5])
-
+    
+    if (noise_dist == "gaussian") {
+        rvgaw.nu <- sqrt(exp(theta.post_samples[, 5]))
+    } else {
+        rvgaw.nu <- 2 + exp(theta.post_samples[, 5]) # nu = 2 + exp(theta.post_samples[, 5])
+    } 
 
     rvgaw.post_samples <- list(
         phi = rvgaw.phi,

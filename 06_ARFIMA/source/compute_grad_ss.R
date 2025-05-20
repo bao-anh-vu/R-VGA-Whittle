@@ -1,5 +1,5 @@
 compute_grad <- tf_function(
-    compute_grad <- function(samples_tf, I_i, freq_i, blocksize) {
+    compute_grad <- function(samples_tf, I_i, freq_i, blocksize, noise_dist = "t") {
         log_likelihood_tf <- 0
         with(tf$GradientTape() %as% tape2, {
             with(tf$GradientTape(persistent = TRUE) %as% tape1, {
@@ -19,7 +19,11 @@ compute_grad <- tf_function(
                 sigma_eta2_s <- tf$reshape(sigma_eta2_s, c(dim(sigma_eta2_s), 1L, 1L))
                 sigma_eta2_tiled <- tf$tile(sigma_eta2_s, c(1L, blocksize, 1L))
 
-                nu_s <- tf$math$exp(samples_tf[, 5]) + 2
+                if (noise_dist == "gaussian") {
+                    nu_s <- tf$math$sqrt(tf$math$exp(samples_tf[, 5]))
+                } else {
+                    nu_s <- tf$math$exp(samples_tf[, 5]) + 2
+                }
 
                 ## Calculate the spectral density of x
                 term1 <- tf$multiply(tf$constant(1 / (2*pi), "float64"), sigma_eta2_tiled)
@@ -36,9 +40,16 @@ compute_grad <- tf_function(
                 spec_dens_x_tf <- tf$multiply(tf$multiply(term1, term2), term3)
                 
                 ## add spectral density of measurement noise
-                spec_dens_eps_tf <- tf$multiply(tf$constant(1 / (2*pi), "float64"), tf$divide(nu_s, nu_s - 2))
-                spec_dens_eps_tf <- tf$reshape(spec_dens_eps_tf, c(S, 1L, 1L))
+                if (noise_dist == "gaussian") {
+                    ## Gaussian noise
+                    spec_dens_eps_tf <- tf$math$exp(samples_tf[, 5])
+                } else {
+                    ## t-distributed noise
+                    # spec_dens_eps_tf <- tf$multiply(tf$constant(1 / (2*pi), "float64"), tf$divide(nu_s, nu_s - 2))
+                    spec_dens_eps_tf <- tf$divide(nu_s, nu_s - 2)
+                }
                 
+                spec_dens_eps_tf <- tf$reshape(spec_dens_eps_tf, c(S, 1L, 1L))
                 ## then add them together
                 spec_dens_y_tf <- spec_dens_x_tf + tf$tile(spec_dens_eps_tf, c(1L, blocksize, 1L))
  

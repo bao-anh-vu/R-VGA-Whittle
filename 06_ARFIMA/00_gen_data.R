@@ -4,7 +4,7 @@ setwd("~/R-VGA-Whittle/06_ARFIMA")
 
 library(mvtnorm)
 library(fracdiff)
-
+library(arfima)
 # library(LSTS)
 # library(fracdiff)
 # library(polynom)
@@ -14,20 +14,21 @@ library(fracdiff)
 
 ## Simulate ARFIMA(1, 0.25, 1) process
 set.seed(2025)
-n <- 2000
-phi <- 0.2
-theta <- 0.5
-d <- 0.25
+n <- 1000
+phi <- 0.3
+theta <- 0.7
+d <- 0.15
 sigma_eta <- 1
-nu <- 0.5 #20
+nu <- 0.8 #20
 # x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
 x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
 # y <- x + rt(n, df = nu) # ARFIMA + noise
 y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
 
-png("sim.png", width = 800, height = 600)
-# par(mfrow = c(2, 1))
-plot(y[1:200], type = "l", main = paste0("ARFIMA(1, ", d, ", 1)"))
+png("./plots/sim.png", width = 800, height = 600)
+par(mfrow = c(2, 1))
+plot(y[1:1000], type = "l", main = paste0("Observations"))
+plot(x[1:1000], type = "l", main = paste0("ARFIMA(1, ", d, ", 1)"))
 # plot(sim2[1:200], type = "l", main = "ARFIMA(2,0,1), dfrac = 0")
 dev.off()
 

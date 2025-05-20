@@ -88,7 +88,7 @@ plot(density(d_samples), main = "d", xlim = c(0, 1))
 abline(v = d, col = "red", lty = 2)
 plot(density(sigma_eta_samples), main = "sigma_eta", xlim = c(0, 5))
 abline(v = sigma_eta, col = "red", lty = 2) 
-plot(density(nu_samples), main = "nu", xlim = c(0, 20))
+plot(density(nu_samples), main = "nu")
 abline(v = nu, col = "red", lty = 2)
 dev.off()
 
@@ -103,8 +103,8 @@ blocksize <- 1L
 n_indiv <- 1L
 
 if (use_tempering) {
-  n_temper <- 25
-  K <- 100
+  n_temper <- 10
+  K <- 200
   temper_schedule <- rep(1/K, K)
   temper_info <- ""
   if (temper_first) {
@@ -128,7 +128,7 @@ if (reorder == "random") {
 
 # if (!is.null(nblocks)) {
 if (!is.null(blocksize)) {
-  block_info <- paste0("_", "blocksize", blocksize, "_", n_indiv, "indiv")
+  block_info <- paste0("_", "blhocksize", blocksize, "_", n_indiv, "indiv")
 } else {
   block_info <- ""
 }
@@ -136,7 +136,8 @@ if (!is.null(blocksize)) {
 rvgaw_filepath <- paste0(result_dir, "rvga_whittle_results_n", n,
                         temper_info, reorder_info, block_info, "_", date, ".rds")
 
-rvgaw_results <- run_rvgaw_arfima(data = y, #sigma_eta = sigma_eta, sigma_eps = sigma_eps, 
+rvgaw_results <- run_rvgaw_arfima(data = y, 
+                                  noise_dist = "gaussian",
                                   prior_mean = prior_mean, prior_var = prior_var, 
                                   deriv = "tf", 
                                   S = S, n_post_samples = n_post_samples,
