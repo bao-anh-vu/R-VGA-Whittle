@@ -14,12 +14,12 @@ library(arfima)
 
 ## Simulate ARFIMA(1, 0.25, 1) process
 set.seed(2025)
-n <- 1000
-phi <- 0.3
-theta <- 0.7
-d <- 0.15
+n <- 10000
+phi <- -0.5
+theta <- 0.5
+d <- 0.25
 sigma_eta <- 1
-nu <- 0.8 #20
+nu <- 5 #20
 # x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
 x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
 # y <- x + rt(n, df = nu) # ARFIMA + noise
@@ -43,7 +43,7 @@ data <- list(
 )
 
 ## Save data
-saveRDS(data, file = "./data/arfima_data.rds")
+saveRDS(data, file = paste0("./data/arfima_data_n", n, ".rds"))
 
 ## MLE fit using arfima package
 # fit <- arfima(x, order = c(1, 0, 1), back=TRUE)

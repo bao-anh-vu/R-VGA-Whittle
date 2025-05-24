@@ -12,6 +12,7 @@ library(keras)
 
 source("./source/run_rvgaw_arfima.R")
 source("./source/compute_grad_ss.R")
+source("./source/compute_arfima_spec_dens.R")
 
 ################## Some code to limit tensorflow memory usage ##################
 
@@ -36,45 +37,6 @@ if (length(gpus) > 0) {
 }
 
 ################## End of code to limit tensorflow memory usage ##################
-
-arfima_spec_dens <- function(n, phi, d, theta, noise_var, nu) {
-  # Compute the spectral density of an ARFIMA process
-  # phi: AR coefficients
-  # d: fractional differencing parameter
-  # theta: MA coefficients
-  # nfreq: number of frequency points to compute
-  
-  # Create the frequency grid
-  ## Fourier frequencies
-    k <- seq(-ceiling(n/2)+1, floor(n/2), 1)
-    k_in_likelihood <- k[k >= 1 & k <= floor((n-1)/2)]
-    freq <- 2 * pi * k_in_likelihood / n
-  
-  # Compute the spectral density using the ARFIMA parameters
-
-    arg <- exp(-1i * freq) 
-
-    powers <- lapply(1:length(phi), function(i) phi[i] * arg^i)
-    Phi_p <- 1 - Reduce(`+`, powers)
-   
-    powers <- lapply(1:length(theta), function(i) theta[i] * arg^i)
-    Theta_q <- 1 + Reduce(`+`, powers)
-    
-    # cat("T1 = ", noise_var/(2*pi), "\n")
-    # cat("T2 = ", Mod(1 - exp(-1i * freq[1]))^(-2 * d), "\n")
-    # cat("T3 = ", head(Mod(Theta_q / Phi_p)^2, 1), "\n")
-    # cat("T4 = ", Mod(Theta_q)[1], ", T5 = ", Mod(Phi_p)[1], "\n")
-
-  # Compute the spectral density
-
-    spec_dens_x <- noise_var/(2*pi) * Mod(1 - exp(-1i * freq))^(-2 * d) * 
-                                    Mod(Theta_q / Phi_p)^2
-
-    spec_dens_eps <- 1/(2*pi) * (nu/(nu - 2)) # nu = 10
-  
-  return(list(spec_dens_x = spec_dens_x, 
-              spec_dens_eps = spec_dens_eps))
-} 
 
 phi <- 0.7
 theta <- 0.3
@@ -154,11 +116,6 @@ samples_tf <- tf$Variable(t(matrix(c(s1, s2), nrow = length(s1), ncol = S)), dty
 # spec_dens_eps_tf <- tf$multiply(tf$constant(1 / (2*pi), dtype = "float64"), tf$divide(nu_s, nu_s - 2))
 
 
-# Maybe feed this through the compute_grad function itself?
-I_i <- 1
-spec_dens <- test1$spec_dens_x + test1$spec_dens_eps
-log_likelihood <- - log(spec_dens) - I_i / spec_dens
-print(head(log_likelihood))
 
 tf_out <- compute_grad(samples_tf = samples_tf, I_i = I_i, 
                     freq_i = freq[2], blocksize = 1L)

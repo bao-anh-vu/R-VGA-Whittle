@@ -1,5 +1,6 @@
-run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL, 
+run_rvgaw_arfima <- function(data, phi = NULL, sigma_eta = NULL, sigma_eps = NULL,
                            transform = "arctanh",
+                           noise_dist = "t",
                            prior_mean = 0, prior_var = 1,
                            deriv = "tf", S = 1000L,
                            n_post_samples = 10000,
@@ -160,7 +161,8 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
             I_i_tf <- tf$constant(I[blockinds])
 
             tf_out_test <- compute_grad(samples_tf, I_i_tf, freq_i_tf,
-                                        blocksize = length(blockinds))
+                                        blocksize = length(blockinds),
+                                        noise_dist = noise_dist)
             
             phi_s <- tanh(samples[1, 1])
             theta_s <- tanh(samples[1, 2])
@@ -169,12 +171,13 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
             nu_s <- 1
             spec_dens <- arfima_spec_dens(n = length(data), phi = phi_s, 
                                         d = d_s, theta = theta_s, 
-                                        sigma = sigma_eta_s, nu = nu_s,
-                                        I = I[blockinds],
-                                        freq = freq[blockinds])
-            # spec_dens_pkg <- spectral.density(ar = phi_s, ma = theta_s, 
-            #                     d = d_s, sd = sigma_eta_s, 
-            #                     lambda = freq[blockinds])
+                                        noise_var = sigma_eta_s^2, nu = nu_s)
+
+            spec_dens_pkg <- spectral.density(ar = phi_s, ma = theta_s, 
+                                            d = d_s, sd = sigma_eta_s, 
+                                            lambda = freq[blockinds])
+
+browser()
 
             E_grad_tf <- tf_out_test$E_grad
             E_hessian_tf <- tf_out_test$E_hessian
@@ -183,7 +186,7 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
 
             E_grad <- as.array(E_grad_tf)
             E_hessian <- as.array(E_hessian_tf)
-browser()
+
             ## Update variational mean and precision
 
             prec_temp <- prec_temp - a * E_hessian
@@ -219,11 +222,18 @@ browser()
     rvgaw.d <- 0.5 * tanh(theta.post_samples[, 3])
     rvgaw.sigma_eta <- sqrt(exp(theta.post_samples[, 4]))
     
+    if (noise_dist == "gaussian") {
+        rvgaw.nu <- sqrt(exp(theta.post_samples[, 5]))
+    } else {
+        rvgaw.nu <- 2 + exp(theta.post_samples[, 5]) # nu = 2 + exp(theta.post_samples[, 5])
+    } 
+
     rvgaw.post_samples <- list(
         phi = rvgaw.phi,
         theta = rvgaw.theta,
         d = rvgaw.d,
-        sigma_eta = rvgaw.sigma_eta
+        sigma_eta = rvgaw.sigma_eta,
+        nu = rvgaw.nu
     )
 
     # plot(density(rvgaw.post_samples))

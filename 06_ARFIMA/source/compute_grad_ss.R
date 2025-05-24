@@ -17,7 +17,6 @@ compute_grad <- tf_function(
 
                 sigma_eta2_s <- tf$math$exp(samples_tf[, 4])
                 sigma_eta2_s <- tf$reshape(sigma_eta2_s, c(dim(sigma_eta2_s), 1L, 1L))
-                sigma_eta2_tiled <- tf$tile(sigma_eta2_s, c(1L, blocksize, 1L))
 
                 if (noise_dist == "gaussian") {
                     nu_s <- tf$math$sqrt(tf$math$exp(samples_tf[, 5]))
@@ -26,11 +25,14 @@ compute_grad <- tf_function(
                 }
 
                 ## Calculate the spectral density of x
-                term1 <- tf$multiply(tf$constant(1 / (2*pi), "float64"), sigma_eta2_tiled)
+                # term1 <- tf$multiply(tf$constant(1 / (2*pi), "float64"), sigma_eta2_tiled)
+                sigma_eta2_tiled <- tf$tile(sigma_eta2_s, c(1L, blocksize, 1L))
+                term1 <- sigma_eta2_tiled
 
                 arg <- tf$math$exp(tf$multiply(-1i, tf$cast(freq_i, "complex128")))
                 base <- tf$cast(tf$math$abs(1 - arg), "float64")
                 term2 <- tf$transpose(base^(-2 * d_s)) 
+                # no need to tile this? because freq_i is already in blocks
 
                 term3_num <- 1 + tf$multiply(tf$cast(theta_s, "complex128"), arg)
                 term3_den <- 1 - tf$multiply(tf$cast(phi_s, "complex128"), arg)
@@ -50,8 +52,10 @@ compute_grad <- tf_function(
                 }
                 
                 spec_dens_eps_tf <- tf$reshape(spec_dens_eps_tf, c(S, 1L, 1L))
+                spec_dens_eps_tf <- tf$tile(spec_dens_eps_tf, c(1L, blocksize, 1L))
+
                 ## then add them together
-                spec_dens_y_tf <- spec_dens_x_tf + tf$tile(spec_dens_eps_tf, c(1L, blocksize, 1L))
+                spec_dens_y_tf <- spec_dens_x_tf + spec_dens_eps_tf
  
                 I_i <- tf$reshape(tf$cast(I_i, dtype = "float64"), c(1L, blocksize, 1L))
                 I_tile <- tf$tile(I_i, c(S, 1L, 1L))

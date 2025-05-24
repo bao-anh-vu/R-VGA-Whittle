@@ -20,14 +20,15 @@ save_hmcw_results <- T
 ## Simulate ARFIMA(1, d, 1) process
 set.seed(2025)
 
-# Simulate ARMA(1,1) with ar = 0.9, ma = 0.5
-n <- 10000
+n <- 1000
 phi <- 0.3
 theta <- 0.7
-d <- 0.15
+d <- 0.25
 sigma_eta <- 1
+nu <- 0.5
 # x <- arfima.sim(n = n, model = list(ar = phi, ma = -theta, dfrac = 0))
 x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
+y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
 
 # Fit the ARMA(1,1) model using arima()
 # fit <- arima(x, order = c(1, 0, 1), include.mean = FALSE)
@@ -55,7 +56,7 @@ x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
 
 ## Result directory
 result_dir <- "./results/"
-hmcw_filepath <- paste0(result_dir, "hmcw_arfima_results_n", n, 
+hmcw_filepath <- paste0(result_dir, "hmcw_arfima_ss_results_n", n, 
                        "_", date, ".rds")
 
   
@@ -65,15 +66,15 @@ n_post_samples <- 10000
 burn_in <- 1000#0
 
 ## Prior parameters
-prior_mean <- c(0, 0, 0, 0)
-diag_prior_var <- c(1, 1, 1, 1) # identity matrix
+prior_mean <- c(0, 0, 0, 0, 1)
+diag_prior_var <- c(1, 1, 1, 1, 2) # identity matrix
 
 # Compute periodogram
-pgram_output <- compute_periodogram(x)
+pgram_output <- compute_periodogram(y)
 freq <- pgram_output$freq
 I <- pgram_output$periodogram
 
-whittle_stan_file <- "./source/arfima_whittle.stan"
+whittle_stan_file <- "./source/arfima_ss_whittle.stan"
 
 whittle_arfima_model <- cmdstan_model(
     whittle_stan_file,
@@ -92,7 +93,7 @@ fit_stan_arfima_whittle <- whittle_arfima_model$sample(
     iter_sampling = n_post_samples / n_chains
 )
 
-hmcw_results <- list(draws = fit_stan_arfima_whittle$draws(variables = c("phi", "theta", "d", "sigma_eta")),
+hmcw_results <- list(draws = fit_stan_arfima_whittle$draws(variables = c("phi", "theta", "d", "sigma_eta", "nu")),
                     time = fit_stan_arfima_whittle$time,
                     summary = fit_stan_arfima_whittle$cmdstan_summary)
 # fit_stan_arfima_whittle$cmdstan_summary()
@@ -107,20 +108,22 @@ hmcw.phi <- c(hmcw_results$draws[,,1])
 hmcw.theta <- c(hmcw_results$draws[,,2])
 hmcw.d <- c(hmcw_results$draws[,,3])
 hmcw.sigma_eta <- c(hmcw_results$draws[,,4])
+hmcw.nu <- c(hmcw_results$draws[,,5])
 
 hmcw_df <- data.frame(
     phi = hmcw.phi,
     theta = hmcw.theta,
     d = hmcw.d,
-    sigma_eta = hmcw.sigma_eta
+    sigma_eta = hmcw.sigma_eta,
+    nu = hmcw.nu
 )
 
 ## Plot posterior distribution for each parameter
 
 plots <- list()
 
-param_names <- c("phi", "theta", "d", "sigma_eta")
-param_values <- c(phi, theta, d, sigma_eta)
+param_names <- c("phi", "theta", "d", "sigma_eta", "nu")
+param_values <- c(phi, theta, d, sigma_eta, nu)
 for (p in 1:length(param_names)) {
     true_vals_df <- data.frame(name = param_names[p], val = param_values[p])
 
@@ -140,11 +143,11 @@ for (p in 1:length(param_names)) {
 }
 
 
-png("./plots/hmcw_arfima_posterior.png", width = 1000, height = 600)
+png("./plots/hmcw_arfima_ss_posterior.png", width = 1000, height = 600)
 grid.arrange(grobs = plots, ncol = 3)
 dev.off()
 
-png("./plots/hmcw_arfima_trace.png", width = 1000, height = 600)
+png("./plots/hmcw_arfima_ss_trace.png", width = 1000, height = 600)
 par(mfrow = c(2, 1))
 plot(hmcw.phi, type = "l")
 abline(h = phi, col = "red", lwd = 2, lty = 2)
@@ -154,4 +157,6 @@ plot(hmcw.d, type = "l")
 abline(h = d, col = "red", lwd = 2)
 plot(hmcw.sigma_eta, type = "l")
 abline(h = sigma_eta, col = "red", lwd = 2)
+plot(hmcw.nu, type = "l")
+abline(h = nu, col = "red", lwd = 2)
 dev.off()
