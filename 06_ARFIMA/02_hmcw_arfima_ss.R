@@ -20,7 +20,7 @@ save_hmcw_results <- T
 ## Simulate ARFIMA(1, d, 1) process
 set.seed(2025)
 
-n <- 1000
+n <- 20000
 phi <- 0.3
 theta <- 0.7
 d <- 0.25
@@ -63,7 +63,7 @@ hmcw_filepath <- paste0(result_dir, "hmcw_arfima_ss_results_n", n,
 ## HMC-Whittle parameters 
 n_chains <- 1
 n_post_samples <- 10000
-burn_in <- 1000#0
+burn_in <- 5000#0
 
 ## Prior parameters
 prior_mean <- c(0, 0, 0, 0, 1)
@@ -148,7 +148,7 @@ grid.arrange(grobs = plots, ncol = 3)
 dev.off()
 
 png("./plots/hmcw_arfima_ss_trace.png", width = 1000, height = 600)
-par(mfrow = c(2, 1))
+par(mfrow = c(2, 3))
 plot(hmcw.phi, type = "l")
 abline(h = phi, col = "red", lwd = 2, lty = 2)
 plot(hmcw.theta, type = "l")
