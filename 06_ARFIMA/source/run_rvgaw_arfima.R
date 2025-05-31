@@ -156,28 +156,45 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
 
             samples_tf <- tf$Variable(samples, dtype = "float64")
 
-            freq_i_tf <- tf$constant(freq[blockinds])
-            I_i_tf <- tf$constant(I[blockinds])
+            freq_i_tf <- tf$Variable(freq[blockinds], dtype = "float64")
+            I_i_tf <- tf$Variable(I[blockinds], dtype = "float64")
 
-            tf_out_test <- compute_grad(samples_tf, I_i_tf, freq_i_tf,
+            tf_out <- compute_grad(samples_tf, I_i_tf, freq_i_tf,
                                         blocksize = length(blockinds))
             
-            phi_s <- tanh(samples[1, 1])
-            theta_s <- tanh(samples[1, 2])
-            d_s <- 0.5 * tanh(samples[1, 3])
-            sigma_eta_s <- sqrt(exp(samples[1, 4]))
-            nu_s <- 1
-            spec_dens <- arfima_spec_dens(n = length(data), phi = phi_s, 
-                                        d = d_s, theta = theta_s, 
-                                        sigma = sigma_eta_s, nu = nu_s,
+            sp <- 2
+            phi_s <- tanh(samples[sp, 1])
+            theta_s <- tanh(samples[sp, 2])
+            d_s <- 0.5 * tanh(samples[sp, 3])
+            sigma_eta_s <- sqrt(exp(samples[sp, 4]))
+            manual <- arfima_spec_dens(phi = phi_s, 
+                                        theta = theta_s, 
+                                        d = d_s, 
+                                        sigma = sigma_eta_s, #nu = nu_s,
                                         I = I[blockinds],
                                         freq = freq[blockinds])
             # spec_dens_pkg <- spectral.density(ar = phi_s, ma = theta_s, 
             #                     d = d_s, sd = sigma_eta_s, 
             #                     lambda = freq[blockinds])
 
-            E_grad_tf <- tf_out_test$E_grad
-            E_hessian_tf <- tf_out_test$E_hessian
+            delta <- 1e-07
+            manual2 <- arfima_spec_dens(phi = phi_s, 
+                                        theta = theta_s, 
+                                        d = d_s+delta,  
+                                        sigma = sigma_eta_s, #nu = nu_s,
+                                        I = I[blockinds],
+                                        freq = freq[blockinds])
+
+            grad_test <- (manual2$log_likelihood - manual$log_likelihood)/delta
+            
+            grad_tf <- tf_out$grad
+            grad_tf_phi <- grad_tf[sp,1] * (1 / (1 - phi_s^2))
+            grad_tf_theta <- grad_tf[sp,2] * (1 / (1 - theta_s^2))
+            grad_tf_d <- grad_tf[sp,3] * (2 / (1 - (2*d_s)^2))
+            grad_tf_sigma_eta <- grad_tf[sp,4] * 2 / sigma_eta_s
+browser()
+            E_grad_tf <- tf_out$E_grad
+            E_hessian_tf <- tf_out$E_hessian
 
             tf.t2 <- proc.time()
 
