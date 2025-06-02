@@ -56,12 +56,12 @@ data_dir <- "./data/"
 # nu <- arfima_data$nu
 
 set.seed(2025)
-n <- 10000
+n <- 1000
 phi <- 0.3
 theta <- 0.7
 d <- 0.25
 sigma_eta <- 1
-nu <- 5 #20
+nu <- 0.5 #20
 # x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
 x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
 # y <- x + rt(n, df = nu) # ARFIMA + noise
@@ -108,16 +108,16 @@ dev.off()
 ##########################################
 ##            R-VGA-Whittle             ##
 ##########################################
-S <- 500L
+S <- 1000L
 use_tempering <- TRUE
 temper_first <- T
 reorder <- 0 #"decreasing"
-blocksize <- 20L
-n_indiv <- 100L
+blocksize <- 100L
+n_indiv <- 20L
 
 if (use_tempering) {
-  n_temper <- 10
-  K <- 150
+  n_temper <- 100
+  K <- 100
   temper_schedule <- rep(1/K, K)
   temper_info <- ""
   if (temper_first) {
@@ -202,7 +202,7 @@ for (p in 1:length(param_names)) {
     plots[[p]] <- plot
 }
 
-png("./plots/rvgaw_posterior.png", width = 800, height = 600)
+png("./plots/rvgaw_posterior_arfima_ss.png", width = 800, height = 600)
 grid.arrange(grobs = plots, ncol = 3)
 dev.off()
 

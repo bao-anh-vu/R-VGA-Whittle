@@ -19,13 +19,16 @@ phi <- 0.3
 theta <- 0.7
 d <- 0.25
 sigma_eta <- 1
-nu <- 0.5
+# nu <- 0.5
+kappa <- 1
 
 x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
-y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
+eps <- rnorm(n, 0, 1)
+y <- kappa * exp(x / 2) * eps
 
 # Compute the periodogram
-pgram_output <- compute_periodogram(data = y)
+y_tilde <- log(y^2) - mean(log(y^2))
+pgram_output <- compute_periodogram(y_tilde)
 freq <- pgram_output$freq
 I <- pgram_output$periodogram
 
@@ -73,7 +76,7 @@ llh_surf <- ggplot(vals, aes(x = sigma, y = nu, fill = llh)) +
                     color = "black", size = 3) + 
   theme_minimal()
 
-png("./plots/whittle_llh_arfima.png", width = 800, height = 600)
+png("./plots/whittle_llh_arfima_sv.png", width = 800, height = 600)
 # plot(nu_vals, llh, type = "l", 
 #      xlab = "Frequency", ylab = "Log Likelihood",
 #      main = paste("Whittle Log Likelihood for ARFIMA(1, d, 1) with d =", d))

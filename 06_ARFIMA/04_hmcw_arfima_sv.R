@@ -19,7 +19,7 @@ save_hmcw_results <- T
 ## Simulate ARFIMA(1, d, 1) process
 set.seed(2025)
 
-n <- 50000
+n <- 20000
 phi <- -0.5
 theta <- 0.5
 d <- 0.25
@@ -144,12 +144,12 @@ for (p in 1:length(param_names)) {
 }
 
 
-png("./plots/hmcw_sv_posterior.png", width = 800, height = 800)
+png(paste0("./plots/hmcw_sv_posterior_n", n, ".png"), width = 800, height = 800)
 grid.arrange(grobs = plots, nrow = 2)
 dev.off()
 
 plot_range <- 1:10000
-png("./plots/hmcw_sv_trace.png", width = 1000, height = 600)
+png(paste0("./plots/hmcw_sv_trace_n", n, ".png"), width = 1000, height = 600)
 par(mfrow = c(3, 2))
 plot(hmcw.phi[plot_range], type = "l", main = "phi", ylab = "phi")
 abline(h = phi, col = "red", lwd = 2, lty = 2)

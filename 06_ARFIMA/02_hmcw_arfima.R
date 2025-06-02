@@ -3,6 +3,7 @@
 rm(list = ls())
 setwd("~/R-VGA-Whittle/06_ARFIMA")
 
+library(mvtnorm)
 library(cmdstanr)
 library(ggplot2)
 library(gridExtra)
@@ -16,17 +17,27 @@ source("./source/compute_periodogram.R")
 ## Flags
 date <- "20250514"
 save_hmcw_results <- T
+use_treering_data <- F
 
-## Simulate ARFIMA(1, d, 1) process
-set.seed(2025)
+if (use_treering_data) {
+    data(treering)
+    x <- treering
+    d <- 0.1058021 # values from https://arxiv.org/pdf/1208.1728
+    phi <- 0.3965915
+    theta <- -0.2848590
+    sigma_eta <- 35.07299
+} else {
+    ## Simulate ARFIMA(1, d, 1) process
+    set.seed(2025)
 
-n <- 10000
-phi <- 0.3
-theta <- 0.7
-d <- 0.15
-sigma_eta <- 1
-# x <- arfima.sim(n = n, model = list(ar = phi, ma = -theta, dfrac = 0))
-x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
+    n <- 5000
+    phi <- 0.3
+    theta <- 0.7
+    d <- 0.15
+    sigma_eta <- 5
+    # x <- arfima.sim(n = n, model = list(ar = phi, ma = -theta, dfrac = 0))
+    x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
+}
 
 # Fit the ARMA(1,1) model using arima()
 # fit <- arima(x, order = c(1, 0, 1), include.mean = FALSE)
@@ -53,9 +64,14 @@ x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
 # )
 
 ## Result directory
-result_dir <- "./results/"
-hmcw_filepath <- paste0(result_dir, "hmcw_arfima_results_n", n, 
+if (use_treering_data) {
+    result_dir <- "./results/treering/"
+    hmcw_filepath <- paste0(result_dir, "hmcw_arfima_treering_results_", date, ".rds")
+} else {
+    result_dir <- "./results/"
+    hmcw_filepath <- paste0(result_dir, "hmcw_arfima_results_n", n, 
                        "_", date, ".rds")
+}
 
   
 ## HMC-Whittle parameters 
@@ -97,7 +113,7 @@ hmcw_results <- list(draws = fit_stan_arfima_whittle$draws(variables = c("phi", 
 # fit_stan_arfima_whittle$cmdstan_summary()
 # fit_stan_arfima_whittle$diagnostic_summary()
 
-if (save_hmcw_results) {
+if (save_hmcw_results) { 
     saveRDS(hmcw_results, hmcw_filepath)
 }
 
@@ -138,12 +154,17 @@ for (p in 1:length(param_names)) {
     plots[[p]] <- plot
 }
 
+if (use_treering_data) {
+    plot_dir <- "./plots/treering/"
+} else {
+    plot_dir <- "./plots/"
+}
 
-png("./plots/hmcw_arfima_posterior.png", width = 1000, height = 600)
+png(paste0(plot_dir, "hmcw_arfima_posterior.png"), width = 1000, height = 600)
 grid.arrange(grobs = plots, ncol = 3)
 dev.off()
 
-png("./plots/hmcw_arfima_trace.png", width = 1000, height = 600)
+png(paste0(plot_dir, "hmcw_arfima_trace.png"), width = 1000, height = 600)
 par(mfrow = c(2, 2))
 plot(hmcw.phi, type = "l")
 abline(h = phi, col = "red", lwd = 2, lty = 2)
@@ -152,5 +173,5 @@ abline(h = theta, col = "red", lwd = 2, lty = 2)
 plot(hmcw.d, type = "l")
 abline(h = d, col = "red", lwd = 2, lty = 2)
 plot(hmcw.sigma_eta, type = "l")
-abline(h = sigma_eta, col = "red", lwd = 2,  lty = 2)
+abline(h = sigma_eta, col = "red", lwd = 2, lty = 2)
 dev.off()

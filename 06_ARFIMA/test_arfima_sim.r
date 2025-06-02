@@ -15,7 +15,7 @@ x <- fracdiff.sim(n = n, ar = true_ar, ma = true_ma, d = 0)
 x2 <- arima.sim(n = n, model = list(ar = true_ar, ma = true_ma, dfrac = 0))
 
 # Fit the ARMA(1,1) model using arima()
-fit <- arima(x, order = c(1, 0, 1), include.mean = FALSE)
+fit <- arima(x$series, order = c(1, 0, 1), include.mean = FALSE)
 fit2 <- arima(x2, order = c(1, 0, 1), include.mean = FALSE)
 
 # Print true and estimated coefficients

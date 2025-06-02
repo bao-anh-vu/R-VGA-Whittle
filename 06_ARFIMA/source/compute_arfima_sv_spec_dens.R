@@ -1,4 +1,4 @@
-arfima_spec_dens <- function(phi, theta, d, sigma, nu = 1, freq, I) {
+arfima_spec_dens <- function(n, phi, d, theta, sigma, nu = 1, freq, I) {
   # Compute the spectral density of an ARFIMA process
   # phi: AR coefficients
   # d: fractional differencing parameter
@@ -30,18 +30,10 @@ arfima_spec_dens <- function(phi, theta, d, sigma, nu = 1, freq, I) {
 
   # Compute the spectral density
 
-    term1 <- sigma^2
-    term2 <- Mod(1 - exp(-1i * freq))^(-2 * d)
-    term3 <- Mod(Theta_q / Phi_p)^2
-    spec_dens_x <- term1 * term2 * term3
-    # spec_dens_x <- sigma^2 * Mod(1 - exp(-1i * freq))^(-2 * d) * 
-    #                                 Mod(Theta_q / Phi_p)^2
+    spec_dens_x <- sigma^2 * Mod(1 - exp(-1i * freq))^(-2 * d) * 
+                                    Mod(Theta_q / Phi_p)^2
 
-    if (nu != 1) {
-      spec_dens_eps <- nu^2 # nu = 10
-    } else {
-      spec_dens_eps <- 0 # no measurement noise
-    }
+    spec_dens_eps <- pi^2/2 # no measurement noise
     
     # Maybe feed this through the compute_grad function itself?
     spec_dens <- spec_dens_x + spec_dens_eps

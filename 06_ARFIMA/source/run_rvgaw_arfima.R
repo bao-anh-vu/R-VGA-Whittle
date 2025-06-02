@@ -30,6 +30,18 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
     freq <- pgram_output$freq
     I <- pgram_output$periodogram
 
+    
+spec_dens <- arfima_spec_dens(phi = 0.3, 
+                              theta = 0.7, 
+                              d = 0.25, 
+                              sigma = 1, 
+                              I = I, freq = freq)
+
+# plot(I, type = "l")
+# lines(spec_dens$spec_dens_x, col = "red", lwd = 2)
+
+browser()
+
     # Reorder the frequencies if needed
     if (reorder == "decreasing") {
         sorted_freq <- sort(freq, decreasing = T, index.return = T)
@@ -162,37 +174,34 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
             tf_out <- compute_grad(samples_tf, I_i_tf, freq_i_tf,
                                         blocksize = length(blockinds))
             
-            sp <- 2
-            phi_s <- tanh(samples[sp, 1])
-            theta_s <- tanh(samples[sp, 2])
-            d_s <- 0.5 * tanh(samples[sp, 3])
-            sigma_eta_s <- sqrt(exp(samples[sp, 4]))
-            manual <- arfima_spec_dens(phi = phi_s, 
-                                        theta = theta_s, 
-                                        d = d_s, 
-                                        sigma = sigma_eta_s, #nu = nu_s,
-                                        I = I[blockinds],
-                                        freq = freq[blockinds])
-            # spec_dens_pkg <- spectral.density(ar = phi_s, ma = theta_s, 
-            #                     d = d_s, sd = sigma_eta_s, 
-            #                     lambda = freq[blockinds])
+            # sp <- 2
+            # phi_s <- tanh(samples[sp, 1])
+            # theta_s <- tanh(samples[sp, 2])
+            # d_s <- 0.5 * tanh(samples[sp, 3])
+            # sigma_eta_s <- sqrt(exp(samples[sp, 4]))
+            # manual <- arfima_spec_dens(phi = phi_s, 
+            #                             theta = theta_s, 
+            #                             d = d_s, 
+            #                             sigma = sigma_eta_s, #nu = nu_s,
+            #                             I = I[blockinds],
+            #                             freq = freq[blockinds])
 
-            delta <- 1e-07
-            manual2 <- arfima_spec_dens(phi = phi_s, 
-                                        theta = theta_s, 
-                                        d = d_s+delta,  
-                                        sigma = sigma_eta_s, #nu = nu_s,
-                                        I = I[blockinds],
-                                        freq = freq[blockinds])
+            # delta <- 1e-07
+            # manual2 <- arfima_spec_dens(phi = phi_s, 
+            #                             theta = theta_s, 
+            #                             d = d_s+delta,  
+            #                             sigma = sigma_eta_s, #nu = nu_s,
+            #                             I = I[blockinds],
+            #                             freq = freq[blockinds])
 
-            grad_test <- (manual2$log_likelihood - manual$log_likelihood)/delta
+            # grad_test <- (manual2$log_likelihood - manual$log_likelihood)/delta
             
-            grad_tf <- tf_out$grad
-            grad_tf_phi <- grad_tf[sp,1] * (1 / (1 - phi_s^2))
-            grad_tf_theta <- grad_tf[sp,2] * (1 / (1 - theta_s^2))
-            grad_tf_d <- grad_tf[sp,3] * (2 / (1 - (2*d_s)^2))
-            grad_tf_sigma_eta <- grad_tf[sp,4] * 2 / sigma_eta_s
-browser()
+            # grad_tf <- tf_out$grad
+            # grad_tf_phi <- grad_tf[sp,1] * (1 / (1 - phi_s^2))
+            # grad_tf_theta <- grad_tf[sp,2] * (1 / (1 - theta_s^2))
+            # grad_tf_d <- grad_tf[sp,3] * (2 / (1 - (2*d_s)^2))
+            # grad_tf_sigma_eta <- grad_tf[sp,4] * 2 / sigma_eta_s
+
             E_grad_tf <- tf_out$E_grad
             E_hessian_tf <- tf_out$E_hessian
 
@@ -200,7 +209,7 @@ browser()
 
             E_grad <- as.array(E_grad_tf)
             E_hessian <- as.array(E_hessian_tf)
-browser()
+
             ## Update variational mean and precision
 
             prec_temp <- prec_temp - a * E_hessian
@@ -210,7 +219,8 @@ browser()
                 # browser() ## try nearPD() funciton from the Matrix package here
                 neg_eigval <- eigvals[eigvals < 0]
                 cat("Warning: precision matrix has negative eigenvalue", neg_eigval, "\n")
-                prec_temp <- as.matrix(nearPD(prec_temp)$mat)
+                # prec_temp <- as.matrix(nearPD(prec_temp)$mat)
+                browser()
             }
 
             mu_temp <- mu_temp + chol2inv(chol(prec_temp)) %*% (a * E_grad)

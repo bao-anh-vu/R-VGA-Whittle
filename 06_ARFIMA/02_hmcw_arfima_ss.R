@@ -16,11 +16,12 @@ source("./source/compute_periodogram.R")
 ## Flags
 date <- "20250514"
 save_hmcw_results <- T
+fix_sigma <- F # If TRUE, sigma_eta is fixed to 1 in the model
 
 ## Simulate ARFIMA(1, d, 1) process
 set.seed(2025)
 
-n <- 20000
+n <- 1000
 phi <- 0.3
 theta <- 0.7
 d <- 0.25
@@ -67,7 +68,7 @@ burn_in <- 5000#0
 
 ## Prior parameters
 prior_mean <- c(0, 0, 0, 0, 1)
-diag_prior_var <- c(1, 1, 1, 1, 2) # identity matrix
+diag_prior_var <- c(1, 1, 1, 1, 5) # identity matrix
 
 # Compute periodogram
 pgram_output <- compute_periodogram(y)
@@ -82,6 +83,7 @@ whittle_arfima_model <- cmdstan_model(
 )
 
 whittle_arfima_data <- list(nfreq = length(freq), freqs = freq, periodogram = I,
+                            fix_sigma = ifelse(fix_sigma, 1, 0),
                             prior_mean = prior_mean, diag_prior_var = diag_prior_var)
 
 fit_stan_arfima_whittle <- whittle_arfima_model$sample(
@@ -143,11 +145,11 @@ for (p in 1:length(param_names)) {
 }
 
 
-png("./plots/hmcw_arfima_ss_posterior.png", width = 1000, height = 600)
+png(paste0("./plots/hmcw_arfima_ss_posterior_n", n, ".png"), width = 1000, height = 600)
 grid.arrange(grobs = plots, ncol = 3)
 dev.off()
 
-png("./plots/hmcw_arfima_ss_trace.png", width = 1000, height = 600)
+png(paste0("./plots/hmcw_arfima_ss_trace_n", n, ".png"), width = 1000, height = 600)
 par(mfrow = c(2, 3))
 plot(hmcw.phi, type = "l")
 abline(h = phi, col = "red", lwd = 2, lty = 2)

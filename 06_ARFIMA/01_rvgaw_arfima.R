@@ -57,7 +57,7 @@ data_dir <- "./data/"
 # nu <- arfima_data$nu
 
 set.seed(2025)
-n <- 2000
+n <- 1000
 phi <- 0.3
 theta <- 0.7
 d <- 0.25
@@ -80,8 +80,9 @@ date <- "20250514"
 
 ## Common settings for all methods
 n_post_samples <- 10000
-prior_mean <- c(0, 0, 0, 0)
-prior_var <- diag(c(1, 1, 1, 1)) # identity matrix
+# prior_mean <- c(0, 0, 0, 0)
+prior_mean <- c(atanh(phi), atanh(theta), atanh(2*d), log(sigma_eta^2)) # log(sigma_eta) for better numerical stability
+prior_var <- 0.5 * diag(c(1, 1, 1, 1)) # identity matrix
 
 ## Simulate from prior
 prior_samples <- rmvnorm(10000, prior_mean, prior_var)
@@ -102,18 +103,23 @@ plot(density(sigma_eta_samples), main = "sigma_eta", xlim = c(0, 5))
 abline(v = sigma_eta, col = "red", lty = 2) 
 dev.off()
 
+            #                             theta = theta_s, 
+            #                             d = d_s, 
+            #                             sigma = sigma_eta_s, #nu = nu_s,
+            #                             I = I[blockinds],
+            #                             freq = freq[blockinds])
 ##########################################
 ##            R-VGA-Whittle             ##
 ##########################################
-S <- 200L
+S <- 1000L
 use_tempering <- TRUE
 temper_first <- T
 reorder <- 0 #"decreasing"
-blocksize <- 10L #20L
-n_indiv <- 0L
+blocksize <- 100L #20L
+n_indiv <- 20L
 
 if (use_tempering) {
-  n_temper <- 10
+  n_temper <- 100
   K <- 100
   temper_schedule <- rep(1/K, K)
   temper_info <- ""
@@ -196,11 +202,43 @@ for (p in 1:length(param_names)) {
     plots[[p]] <- plot
 }
 
-png("./plots/rvgaw_arfima_posterior.png", width = 800, height = 600)
+png("./plots/rvgaw_arfima_posterior2.png", width = 800, height = 600)
 grid.arrange(grobs = plots, ncol = 3)
 dev.off()
 
+## Plot trajectory of the variational means
+precs <- rvgaw_results$prec
+vars <- lapply(precs, solve)
+test <- lapply(1:length(rvgaw_results$mu), function(i) {
+  rmvnorm(1000, rvgaw_results$mu[[i]], vars[[i]])
+})
 
+transform_to_og_space <- function(scaled_params) {
+  phi <- tanh(scaled_params[, 1])
+  theta <- tanh(scaled_params[, 2])
+  d <- 0.5 * tanh(scaled_params[, 3])
+  sigma_eta <- sqrt(exp(scaled_params[, 4]))
+  return(cbind(phi, theta, d, sigma_eta))
+}
+
+og_params <- lapply(test, transform_to_og_space)
+og_param_means <- lapply(og_params, colMeans)
+phi_means <- sapply(og_param_means, function(x) x[1])
+theta_means <- sapply(og_param_means, function(x) x[2]) 
+d_means <- sapply(og_param_means, function(x) x[3])
+sigma_eta_means <- sapply(og_param_means, function(x) x[4])
+
+png("./plots/rvgaw_arfima_means.png", width = 800, height = 600)
+par(mfrow = c(2, 2))
+plot(phi_means, type = "l", main = "phi", xlab = "Iteration", ylab = "Value")
+abline(h = phi, col = "red", lty = 2)
+plot(theta_means, type = "l", main = "theta", xlab = "Iteration", ylab = "Value")
+abline(h = theta, col = "red", lty = 2)
+plot(d_means, type = "l", main = "d", xlab = "Iteration", ylab = "Value")
+abline(h = d, col = "red", lty = 2)
+plot(sigma_eta_means, type = "l", main = "sigma_eta", xlab = "Iteration", ylab = "Value")
+abline(h = sigma_eta, col = "red", lty = 2)
+dev.off()
 # png("./plots/rvgaw_posterior.png", width = 800, height = 600)
 # par(mfrow = c(2, 3))
 # plot(density(rvgaw.phi), main = "phi", xlim = c(-1, 1))

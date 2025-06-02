@@ -14,8 +14,8 @@ functions {
     spec_dens_x = term1 * term2 * term3;
 
 //    spec_dens_eps = 1/(2*pi()) * (nu/(nu - 2));
-//    spec_dens_eps = nu/(nu - 2);
-      spec_dens_eps = nu^2;
+//    spec_dens_eps = nu/(nu - 2); // t noise
+      spec_dens_eps = nu^2; // Gaussian noise
 
     spec_dens = spec_dens_x + spec_dens_eps;
 
@@ -29,6 +29,7 @@ data {
   vector[nfreq] periodogram;
   vector[5] prior_mean;
   vector[5] diag_prior_var;
+  int fix_sigma;
 }
 
 parameters {
@@ -52,7 +53,14 @@ transformed parameters {
     phi = tanh(tilde_phi);
     theta = tanh(tilde_theta); 
     d = 0.5 * tanh(tilde_d);
-    sigma_eta = sqrt(exp(tilde_sigma_eta));
+
+if (fix_sigma == 0) {
+  sigma_eta = sqrt(exp(tilde_sigma_eta));
+} else {
+   sigma_eta = 1;
+}
+
+ 
 //    nu = 2 + exp(tilde_nu);
     nu = sqrt(exp(tilde_nu));
   
@@ -65,7 +73,10 @@ model {
   tilde_phi ~ normal(prior_mean[1], sqrt(diag_prior_var[1]));
   tilde_theta ~ normal(prior_mean[2], sqrt(diag_prior_var[2]));
   tilde_d ~ normal(prior_mean[3], sqrt(diag_prior_var[3]));
-  tilde_sigma_eta ~ normal(prior_mean[4], sqrt(diag_prior_var[4]));
+
+  if (fix_sigma == 0) {
+    tilde_sigma_eta ~ normal(prior_mean[4], sqrt(diag_prior_var[4]));
+  }
   tilde_nu ~ normal(prior_mean[5], sqrt(diag_prior_var[5]));
   
   for (k in 1:nfreq) { 

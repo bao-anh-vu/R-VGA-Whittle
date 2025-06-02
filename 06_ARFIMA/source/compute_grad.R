@@ -13,21 +13,26 @@ compute_grad <- tf_function(
                 theta_s <- tf$math$tanh(samples_tf[, 2])
                 theta_s <- tf$reshape(theta_s, c(length(theta_s), 1L, 1L)) # S x 1 x 1
 
-                d_s <- 0.5 * tf$tanh(samples_tf[, 3]) # fixed for now
+                d_s <- 0.5 * tf$math$tanh(samples_tf[, 3]) # fixed for now
+                d_s <- tf$reshape(d_s, c(length(d_s), 1L, 1L)) # S x 1 x 1
 
-                sigma_eta2_s <- tf$math$exp(samples_tf[, 4])
-                sigma_eta2_s <- tf$reshape(sigma_eta2_s, c(dim(sigma_eta2_s), 1L, 1L))
+                sigma_eta_s <- tf$math$sqrt(tf$math$exp(samples_tf[, 4]))
+                sigma_eta_s <- tf$reshape(sigma_eta_s, c(length(sigma_eta_s), 1L, 1L))
 
                 ## Calculate the spectral density of x
                 # term1 <- tf$multiply(tf$constant(1 / (2*pi), "float64"), sigma_eta2_tiled)
-                sigma_eta2_tiled <- tf$tile(sigma_eta2_s, c(1L, blocksize, 1L))
-                term1 <- sigma_eta2_tiled
+                # sigma_eta2_tiled <- tf$tile(sigma_eta2_s, c(1L, blocksize, 1L))
+                term1 <- tf$math$pow(sigma_eta_s, 2)
+                term1 <- tf$tile(term1, c(1L, blocksize, 1L))
+                # arg <- tf$math$exp(tf$multiply(-1i, tf$cast(freq_i, "complex128")))
+                # base <- tf$cast(tf$math$abs(1 - arg), "float64")
+                # term2 <- base^(-2 * d_s)
 
-                arg <- tf$math$exp(tf$multiply(-1i, tf$cast(freq_i, "complex128")))
-                base <- tf$cast(tf$math$abs(1 - arg), "float64")
-                term2 <- tf$transpose(base^(-2 * d_s)) 
+                base <- tf$cast(2 * tf$math$sin(0.5 * freq_i), "float64")
+                term2 <- tf$math$pow(base, -2 * d_s) # 2 * sin(0.5 * freq_i) ^ (-2 * d_s)
                 # no need to tile this? because freq_i is already in blocks
 
+                arg <- tf$math$exp(tf$multiply(-1i, tf$cast(freq_i, "complex128")))
                 term3_num <- 1 + tf$multiply(tf$cast(theta_s, "complex128"), arg)
                 term3_den <- 1 - tf$multiply(tf$cast(phi_s, "complex128"), arg)
                 term3 <- tf$math$square(tf$math$abs(tf$divide(term3_num, term3_den)))
@@ -37,11 +42,12 @@ compute_grad <- tf_function(
                 
                 spec_dens_y_tf <- spec_dens_x_tf #+ spec_dens_eps_tf
  
-                I_i <- tf$reshape(tf$cast(I_i, dtype = "float64"), c(1L, blocksize, 1L))
-                I_tile <- tf$tile(I_i, c(S, 1L, 1L))
-                log_likelihood_tf <- - tf$math$log(spec_dens_y_tf) - tf$multiply(I_i, tf$math$reciprocal(spec_dens_y_tf))
+                I_i <- tf$reshape(I_i, c(1L, blocksize, 1L))
+                # I_tile <- tf$tile(I_i, c(S, 1L, 1L))
+                log_likelihood_tf <- - tf$math$log(spec_dens_y_tf) - 
+                                        tf$multiply(I_i, tf$math$reciprocal(spec_dens_y_tf))
 
-                log_likelihood_tf <- tf$math$reduce_sum(log_likelihood_tf, 1L) # sum all log likelihoods over the block
+                # log_likelihood_tf <- tf$math$reduce_sum(log_likelihood_tf, 1L) # sum all log likelihoods over the block
 
             })
             grad_tf %<-% tape1$gradient(log_likelihood_tf, samples_tf)
@@ -54,6 +60,9 @@ compute_grad <- tf_function(
         E_hessian_tf <- tf$reduce_mean(grad2_tf, 0L)
 
         return(list(
+            term1 = term1,
+            term2 = term2,
+            term3 = term3,
             spec_dens_x_tf = spec_dens_x_tf,
             log_likelihood = log_likelihood_tf,
             grad = grad_tf,
