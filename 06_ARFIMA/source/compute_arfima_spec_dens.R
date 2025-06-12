@@ -1,4 +1,4 @@
-arfima_spec_dens <- function(phi, theta, d, sigma, nu = 1, freq, I) {
+arfima_spec_dens <- function(phi, theta, d, sigma, nu = 1, noise_dist, freq, I) {
   # Compute the spectral density of an ARFIMA process
   # phi: AR coefficients
   # d: fractional differencing parameter
@@ -37,8 +37,12 @@ arfima_spec_dens <- function(phi, theta, d, sigma, nu = 1, freq, I) {
     # spec_dens_x <- sigma^2 * Mod(1 - exp(-1i * freq))^(-2 * d) * 
     #                                 Mod(Theta_q / Phi_p)^2
 
-    if (nu != 1) {
-      spec_dens_eps <- nu^2 # nu = 10
+    if (!is.null(nu)) {
+      if (noise_dist == "t") {
+        spec_dens_eps <- nu / (nu - 2)
+      } else { # gaussian noise
+        spec_dens_eps <- nu^2 # nu = 10
+      }
     } else {
       spec_dens_eps <- 0 # no measurement noise
     }

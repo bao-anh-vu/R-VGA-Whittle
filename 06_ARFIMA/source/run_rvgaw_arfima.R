@@ -31,16 +31,15 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
     I <- pgram_output$periodogram
 
     
-spec_dens <- arfima_spec_dens(phi = 0.3, 
-                              theta = 0.7, 
-                              d = 0.25, 
-                              sigma = 1, 
-                              I = I, freq = freq)
+    # spec_dens <- arfima_spec_dens(phi = 0.3, 
+    #                           theta = 0.7, 
+    #                           d = 0.25, 
+    #                           sigma = 1, 
+    #                           I = I, freq = freq)
+    # plot(I, type = "l")
+    # lines(spec_dens$spec_dens_x, col = "red", lwd = 2)
 
-# plot(I, type = "l")
-# lines(spec_dens$spec_dens_x, col = "red", lwd = 2)
-
-browser()
+# browser()
 
     # Reorder the frequencies if needed
     if (reorder == "decreasing") {
@@ -250,7 +249,7 @@ browser()
         phi = rvgaw.phi,
         theta = rvgaw.theta,
         d = rvgaw.d,
-        sigma_eta = rvgaw.sigma_eta
+        sigma_eta = rvgaw.sigma_eta,
     )
 
     # plot(density(rvgaw.post_samples))

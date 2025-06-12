@@ -1,9 +1,11 @@
 ## SSM with underlying ARFIMA model
-rm(list = ls())
 setwd("~/R-VGA-Whittle/06_ARFIMA")
 
+rm(list = ls())
+
+# Load libraries
 library(mvtnorm)
-library(arfima)
+# library(arfima)
 library(fracdiff)
 library(tensorflow)
 reticulate::use_condaenv("myenv", required = TRUE)
@@ -11,8 +13,11 @@ library(keras)
 library(ggplot2)
 library(gridExtra)
 
+source("./source/fit_mle_arfima_ss.R")
 source("./source/run_rvgaw_arfima_ss.R")
+source("./source/find_cutoff_freq.R")
 source("./source/compute_periodogram.R")
+source("./source/compute_arfima_spec_dens.R")
 source("./source/compute_grad_ss.R")
 
 ################## Some code to limit tensorflow memory usage ##################
@@ -42,12 +47,13 @@ if (length(gpus) > 0) {
 
 ## Flags
 date <- "20250514"
+noise_dist <- "t" # "t" or "gaussian"
 save_rvgaw_results <- T
 
 ## Read data
-data_dir <- "./data/"
-# n <- 10000
-# arfima_data <- readRDS(paste0(data_dir, "arfima_data_n", n, ".rds"))
+# data_dir <- "./data/"
+# n <- 5000
+# arfima_data <- readRDS(paste0(data_dir, "arfima_data_n", n, "_", noise_dist, ".rds"))
 # y <- arfima_data$y
 # phi <- arfima_data$phi
 # theta <- arfima_data$theta
@@ -55,43 +61,115 @@ data_dir <- "./data/"
 # sigma_eta <- arfima_data$sigma_eta
 # nu <- arfima_data$nu
 
+## Simulate ARFIMA(1, 0.25, 1) process
 set.seed(2025)
-n <- 1000
+n <- 5000
 phi <- 0.3
 theta <- 0.7
 d <- 0.25
 sigma_eta <- 1
-nu <- 0.5 #20
+
+if (noise_dist == "t") {
+  nu <- 50 # degrees of freedom for t-distribution
+} else {
+  nu <- 0.2 # standard deviation for Gaussian noise
+}
+
 # x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
 x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
 # y <- x + rt(n, df = nu) # ARFIMA + noise
-y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
 
-# png("sim.png", width = 800, height = 600)
-# plot(y[1:200], type = "l", main = paste0("ARFIMA(1, ", d, ", 1)"))
-# dev.off()
-
+if (noise_dist == "t") {
+  y <- x + rt(n, df = nu) # ARFIMA + noise
+} else {
+  y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
+}
 ## Result directory
 result_dir <- "./results/"
 
 ## Flags
 date <- "20250514"
 
-## Common settings for all methods
-n_post_samples <- 10000
-prior_mean <- c(0, 0, 0, 0, 1)
-prior_var <- diag(c(1, 1, 1, 1, 2)) # identity matrix
+## Compute periodogram
+pgram_output <- compute_periodogram(y)
+freq <- pgram_output$freq
+I <- pgram_output$periodogram
+
+# llh <- arfima_spec_dens(phi = phi, 
+#                         theta = theta, 
+#                         d = d, 
+#                         sigma = sigma_eta, 
+#                         nu = nu,
+#                         noise_dist = noise_dist,
+#                         I = I,
+#                         freq = freq)
+
+## MLE
+mle <- fit_mle_arfima_ss(pdg = I, freq = freq, noise_dist = noise_dist)
+# if (noise_dist == "t") {
+#   ini_params <- c(0, 0, 0, 0.001, 3)
+#   lower_bounds <- c(-0.9999, -0.9999, -0.4999, 0.001, 3)
+#   upper_bounds <- c(0.9999, 0.9999, 0.4999, 10, 100)
+# } else {
+#   ini_params <- c(0, 0, 0, 0.001, 0.001)
+#   lower_bounds <- c(-0.9999, -0.9999, -0.4999, 0.001, 0.001)
+#   upper_bounds <- c(0.9999, 0.9999, 0.4999, 10, 10)
+# }
+
+# mle <- optim(par = ini_params, 
+#               fn = function(params) {
+#                   phi_i <- params[1]
+#                   theta_i <- params[2]
+#                   d_i <- params[3]
+#                   sigma_i <- params[4]
+#                   nu_i <- params[5]
+#                   out <- arfima_spec_dens(phi = phi_i, 
+#                                           theta = theta_i, 
+#                                           d = d_i, 
+#                                           sigma = sigma_i, 
+#                                           nu = nu_i,
+#                                           noise_dist = noise_dist,
+#                                           I = I,
+#                                           freq = freq)
+#                   - out$log_likelihood # minimise the negative log likelihood
+#               }, 
+#               method = "L-BFGS-B", 
+#               lower = lower_bounds, 
+#               upper = upper_bounds)
+
+## Prior parameters
+mle_phi <- mle$par[1]
+mle_theta <- mle$par[2]
+mle_d <- mle$par[3]
+mle_sigma_eta <- mle$par[4]
+mle_nu <- mle$par[5]
+
+if (noise_dist == "t") {
+  prior_mean_nu <- log(mle_nu - 2)
+  prior_var_nu <- 0.5 # variance for nu
+} else {
+  prior_mean_nu <- log(mle_nu^2)
+  prior_var_nu <- 0.5 # variance for nu
+}
+# prior_mean <- c(tanh(mle_phi), tanh(mle_theta), 0.5*tanh(mle_d), sqrt(exp(mle_sigma_eta)), sqrt(exp(mle_nu)))
+prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
+diag_prior_var <- c(rep(0.5, 4), prior_var_nu) # identity matrix
 
 ## Simulate from prior
-prior_samples <- rmvnorm(10000, prior_mean, prior_var)
+prior_samples <- rmvnorm(10000, prior_mean, diag(diag_prior_var))
 phi_samples <- tanh(prior_samples[, 1])
 theta_samples <- tanh(prior_samples[, 2])
 d_samples <- 0.5 * tanh(prior_samples[, 3]) 
 sigma_eta_samples <- sqrt(exp(prior_samples[, 4]))
 # nu_samples <- 2 + exp(prior_samples[, 5])
-nu_samples <- sqrt(exp(prior_samples[, 5]))
 
-png("./plots/prior.png", width = 800, height = 600)
+if (noise_dist == "t") {
+  nu_samples <- 2 + exp(prior_samples[, 5])
+} else {# gaussian
+  nu_samples <- sqrt(exp(prior_samples[, 5]))
+}
+
+png(paste0("./plots/prior_", noise_dist, ".png"), width = 800, height = 600)
 par(mfrow = c(2, 3))
 plot(density(phi_samples), main = "phi", xlim = c(-1, 1))
 abline(v = phi, col = "red", lty = 2)
@@ -112,8 +190,10 @@ S <- 1000L
 use_tempering <- TRUE
 temper_first <- T
 reorder <- 0 #"decreasing"
-blocksize <- 100L
-n_indiv <- 20L
+blocksize <- 50L
+# n_indiv <- 20L
+n_indiv <- find_cutoff_freq(y, nsegs = 25, power_prop = 1/2)$cutoff_ind #100
+n_post_samples <- 10000
 
 if (use_tempering) {
   n_temper <- 100
@@ -146,12 +226,13 @@ if (!is.null(blocksize)) {
   block_info <- ""
 }
 
-rvgaw_filepath <- paste0(result_dir, "rvga_whittle_results_n", n,
+rvgaw_filepath <- paste0(result_dir, "rvga_whittle_results_n", n, "_", noise_dist,
                         temper_info, reorder_info, block_info, "_", date, ".rds")
 
 rvgaw_results <- run_rvgaw_arfima(data = y, 
-                                  noise_dist = "gaussian",
-                                  prior_mean = prior_mean, prior_var = prior_var, 
+                                  noise_dist = noise_dist,
+                                  prior_mean = prior_mean, 
+                                  prior_var = diag(diag_prior_var), 
                                   deriv = "tf", 
                                   S = S, n_post_samples = n_post_samples,
                                   use_tempering = use_tempering, 
@@ -202,7 +283,7 @@ for (p in 1:length(param_names)) {
     plots[[p]] <- plot
 }
 
-png("./plots/rvgaw_posterior_arfima_ss.png", width = 800, height = 600)
+png(paste0("./plots/rvgaw_posterior_arfima_ss_", noise_dist, ".png"), width = 800, height = 600)
 grid.arrange(grobs = plots, ncol = 3)
 dev.off()
 
@@ -221,3 +302,45 @@ dev.off()
 # abline(v = nu, col = "red", lty = 2)
 # dev.off()
 
+## Plot trajectory of the variational means
+precs <- rvgaw_results$prec
+vars <- lapply(precs, solve)
+test <- lapply(1:length(rvgaw_results$mu), function(i) {
+  rmvnorm(1000, rvgaw_results$mu[[i]], vars[[i]])
+})
+
+transform_to_og_space <- function(scaled_params, noise_dist) {
+  phi <- tanh(scaled_params[, 1])
+  theta <- tanh(scaled_params[, 2])
+  d <- 0.5 * tanh(scaled_params[, 3])
+  sigma_eta <- sqrt(exp(scaled_params[, 4]))
+
+  if (noise_dist == "t") {
+    nu <- 2 + exp(scaled_params[, 5])
+  } else {
+    nu <- sqrt(exp(scaled_params[, 5]))
+  }
+  return(cbind(phi, theta, d, sigma_eta, nu))
+}
+
+og_params <- lapply(test, transform_to_og_space, noise_dist = noise_dist) 
+og_param_means <- lapply(og_params, colMeans)
+phi_means <- sapply(og_param_means, function(x) x[1])
+theta_means <- sapply(og_param_means, function(x) x[2]) 
+d_means <- sapply(og_param_means, function(x) x[3])
+sigma_eta_means <- sapply(og_param_means, function(x) x[4])
+nu_means <- sapply(og_param_means, function(x) x[5])
+
+png("./plots/rvgaw_arfima_means.png", width = 800, height = 600)
+par(mfrow = c(2, 3))
+plot(phi_means, type = "l", main = "phi", xlab = "Iteration", ylab = "Value")
+abline(h = phi, col = "red", lty = 2)
+plot(theta_means, type = "l", main = "theta", xlab = "Iteration", ylab = "Value")
+abline(h = theta, col = "red", lty = 2)
+plot(d_means, type = "l", main = "d", xlab = "Iteration", ylab = "Value")
+abline(h = d, col = "red", lty = 2)
+plot(sigma_eta_means, type = "l", main = "sigma_eta", xlab = "Iteration", ylab = "Value")
+abline(h = sigma_eta, col = "red", lty = 2)
+plot(nu_means, type = "l", main = "nu", xlab = "Iteration", ylab = "Value")
+abline(h = nu, col = "red", lty = 2)
+dev.off()

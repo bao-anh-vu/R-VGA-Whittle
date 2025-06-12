@@ -3,6 +3,7 @@
 rm(list = ls())
 setwd("~/R-VGA-Whittle/06_ARFIMA")
 
+library(mvtnorm)
 library(cmdstanr)
 library(ggplot2)
 library(gridExtra)
@@ -12,24 +13,38 @@ library(fracdiff)
 library(astsa)
 
 source("./source/compute_periodogram.R")
+source("./source/compute_arfima_spec_dens.R")
+source("./source/fit_mle_arfima_ss.R")
 
 ## Flags
 date <- "20250514"
+noise_dist <- "t" # "t" or "gaussian"
 save_hmcw_results <- T
 fix_sigma <- F # If TRUE, sigma_eta is fixed to 1 in the model
 
-## Simulate ARFIMA(1, d, 1) process
-set.seed(2025)
+## Read data
+data_dir <- "./data/"
+n <- 5000
+arfima_data <- readRDS(paste0(data_dir, "arfima_data_n", n, "_", noise_dist, ".rds"))
+y <- arfima_data$y
+phi <- arfima_data$phi
+theta <- arfima_data$theta
+d <- arfima_data$d
+sigma_eta <- arfima_data$sigma_eta
+nu <- arfima_data$nu
 
-n <- 1000
-phi <- 0.3
-theta <- 0.7
-d <- 0.25
-sigma_eta <- 1
-nu <- 0.5
-# x <- arfima.sim(n = n, model = list(ar = phi, ma = -theta, dfrac = 0))
-x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
-y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
+## Simulate ARFIMA(1, d, 1) process
+# set.seed(2025)
+# n <- 5000
+# phi <- 0.3
+# theta <- 0.7
+# d <- 0.15
+# sigma_eta <- 1
+# nu <- 0.2 #20
+# # x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
+# x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
+# # y <- x + rt(n, df = nu) # ARFIMA + noise
+# y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
 
 # Fit the ARMA(1,1) model using arima()
 # fit <- arima(x, order = c(1, 0, 1), include.mean = FALSE)
@@ -64,17 +79,73 @@ hmcw_filepath <- paste0(result_dir, "hmcw_arfima_ss_results_n", n,
 ## HMC-Whittle parameters 
 n_chains <- 1
 n_post_samples <- 10000
-burn_in <- 5000#0
+burn_in <- 5000
 
-## Prior parameters
-prior_mean <- c(0, 0, 0, 0, 1)
-diag_prior_var <- c(1, 1, 1, 1, 5) # identity matrix
-
-# Compute periodogram
+## Compute periodogram
 pgram_output <- compute_periodogram(y)
 freq <- pgram_output$freq
 I <- pgram_output$periodogram
 
+# test <- arfima_spec_dens(phi = phi, 
+#                             theta = theta, 
+#                             d = d, 
+#                             sigma = sigma_eta, 
+#                             nu = nu,
+#                             I = I,
+#                             freq = freq)
+
+# spec_dens <- test$spec_dens_x + test$spec_dens_eps
+# head(spec_dens)
+
+## MLE
+mle <- fit_mle_arfima_ss(pdg = I, freq = freq, noise_dist = noise_dist)
+
+## Prior parameters
+mle_phi <- mle$par[1]
+mle_theta <- mle$par[2]
+mle_d <- mle$par[3]
+mle_sigma_eta <- mle$par[4]
+mle_nu <- mle$par[5]
+
+if (noise_dist == "t") {
+  prior_mean_nu <- log(mle_nu - 2)
+  prior_var_nu <- 0.5 # variance for nu
+} else {
+  prior_mean_nu <- log(mle_nu^2)
+  prior_var_nu <- 0.5 # variance for nu
+}
+# prior_mean <- c(tanh(mle_phi), tanh(mle_theta), 0.5*tanh(mle_d), sqrt(exp(mle_sigma_eta)), sqrt(exp(mle_nu)))
+prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
+diag_prior_var <- c(rep(0.5, 4), prior_var_nu) # identity matrix
+
+## Simulate from prior
+prior_samples <- rmvnorm(10000, prior_mean, diag(diag_prior_var))
+phi_samples <- tanh(prior_samples[, 1])
+theta_samples <- tanh(prior_samples[, 2])
+d_samples <- 0.5 * tanh(prior_samples[, 3]) 
+sigma_eta_samples <- sqrt(exp(prior_samples[, 4]))
+
+if (noise_dist == "t") {
+  nu_samples <- 2 + exp(prior_samples[, 5])
+} else {# gaussian
+  nu_samples <- sqrt(exp(prior_samples[, 5]))
+}
+
+png("./plots/prior_hmcw.png", width = 800, height = 600)
+par(mfrow = c(2, 3))
+plot(density(phi_samples), main = "phi", xlim = c(-1, 1))
+abline(v = phi, col = "red", lty = 2)
+plot(density(theta_samples), main = "theta", xlim = c(-1, 1))
+abline(v = theta, col = "red", lty = 2)
+plot(density(d_samples), main = "d", xlim = c(0, 1))
+abline(v = d, col = "red", lty = 2)
+plot(density(sigma_eta_samples), main = "sigma_eta")
+abline(v = sigma_eta, col = "red", lty = 2) 
+plot(density(nu_samples), main = "nu")
+abline(v = nu, col = "red", lty = 2)
+dev.off()
+
+## HMC-Whittle
 whittle_stan_file <- "./source/arfima_ss_whittle.stan"
 
 whittle_arfima_model <- cmdstan_model(
@@ -84,6 +155,7 @@ whittle_arfima_model <- cmdstan_model(
 
 whittle_arfima_data <- list(nfreq = length(freq), freqs = freq, periodogram = I,
                             fix_sigma = ifelse(fix_sigma, 1, 0),
+                            use_t_noise = ifelse(noise_dist == "t", 1, 0), # 1 for t noise, 0 for gaussian noise
                             prior_mean = prior_mean, diag_prior_var = diag_prior_var)
 
 fit_stan_arfima_whittle <- whittle_arfima_model$sample(
@@ -151,14 +223,15 @@ dev.off()
 
 png(paste0("./plots/hmcw_arfima_ss_trace_n", n, ".png"), width = 1000, height = 600)
 par(mfrow = c(2, 3))
-plot(hmcw.phi, type = "l")
+plot_range <- 1:length(hmcw.phi)
+plot(hmcw.phi[plot_range], type = "l")
 abline(h = phi, col = "red", lwd = 2, lty = 2)
-plot(hmcw.theta, type = "l")
+plot(hmcw.theta[plot_range], type = "l")
 abline(h = theta, col = "red", lwd = 2, lty = 2)
-plot(hmcw.d, type = "l")
-abline(h = d, col = "red", lwd = 2)
-plot(hmcw.sigma_eta, type = "l")
-abline(h = sigma_eta, col = "red", lwd = 2)
-plot(hmcw.nu, type = "l")
-abline(h = nu, col = "red", lwd = 2)
+plot(hmcw.d[plot_range], type = "l")
+abline(h = d, col = "red", lwd = 2, lty = 2)
+plot(hmcw.sigma_eta[plot_range], type = "l")
+abline(h = sigma_eta, col = "red", lwd = 2, lty = 2)
+plot(hmcw.nu[plot_range], type = "l")
+abline(h = nu, col = "red", lwd = 2, lty = 2)
 dev.off()

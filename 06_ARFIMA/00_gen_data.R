@@ -12,18 +12,31 @@ library(arfima)
 # source("./source/compute_periodogram.R")
 # source("./source/compute_grad_ss.R")
 
+noise_dist <- "t"
+
 ## Simulate ARFIMA(1, 0.25, 1) process
 set.seed(2025)
-n <- 10000
-phi <- -0.5
-theta <- 0.5
-d <- 0.25
+n <- 2500
+phi <- 0.3
+theta <- 0.7
+d <- 0.15
 sigma_eta <- 1
-nu <- 5 #20
+
+if (noise_dist == "t") {
+  nu <- 20 # degrees of freedom for t-distribution
+} else {
+  nu <- 0.2 # standard deviation for Gaussian noise
+}
+
 # x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
 x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
 # y <- x + rt(n, df = nu) # ARFIMA + noise
-y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
+
+if (noise_dist == "t") {
+  y <- x + rt(n, df = nu) # ARFIMA + noise
+} else {
+  y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
+}
 
 png("./plots/sim.png", width = 800, height = 600)
 par(mfrow = c(2, 1))
@@ -39,11 +52,12 @@ data <- list(
   theta = theta,
   d = d,
   sigma_eta = sigma_eta,
-  nu = nu
+  nu = nu,
+  noise_dist = noise_dist
 )
 
 ## Save data
-saveRDS(data, file = paste0("./data/arfima_data_n", n, ".rds"))
+saveRDS(data, file = paste0("./data/arfima_data_n", n, "_", noise_dist, ".rds"))
 
 ## MLE fit using arfima package
 # fit <- arfima(x, order = c(1, 0, 1), back=TRUE)

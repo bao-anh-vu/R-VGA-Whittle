@@ -30,6 +30,7 @@ data {
   int<lower=1> K;
   vector[5] prior_mean;
   vector[5] diag_prior_var;
+  int use_t_noise;
 }
 
 parameters {
@@ -53,6 +54,7 @@ transformed parameters {
 model {
   vector[N - K] x_diff = frac_diff(x, d, K);
   vector[N - K] eta;
+  vector[N] v;
 
   // Priors on transformed parameters
   tilde_phi ~ normal(prior_mean[1], sqrt(diag_prior_var[1]));
@@ -70,6 +72,15 @@ model {
     eta[t] = x_diff[t] - pred;
   }
 
-  eta ~ normal(0, sigma_eta);        // ARFIMA(1,d,1) latent process innovations
-  y ~ normal(x, nu);            // Observation equation: y_t = x_t + v_t
+  // ARFIMA(1,d,1) latent process innovations
+  eta ~ normal(0, sigma_eta);        
+  
+  // Observations
+  if (use_t_noise) {
+    v = y - x; // Measurement noise 
+    v ~ student_t(nu, 0, 1);
+  } else {
+    y ~ normal(x, nu); 
+  }
+            
 }
