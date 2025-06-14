@@ -26,7 +26,6 @@ run_rvgaw_sv <- function(y, phi = NULL, sigma_eta = NULL, sigma_xi = NULL,
   freq <- pgram_out$freq
   I <- pgram_out$periodogram
   
-  
   ## Reorder frequencies if needed
   if (reorder == "decreasing") {
     sorted_freq <- sort(freq, decreasing = T, index.return = T)
@@ -60,7 +59,6 @@ run_rvgaw_sv <- function(y, phi = NULL, sigma_eta = NULL, sigma_xi = NULL,
   # lines(freq, col = "red")
   freq <- reordered_freq
   I <- reordered_I 
-  # browser()
   
   if (use_tempering) {
     if (temper_first) {
@@ -82,7 +80,9 @@ run_rvgaw_sv <- function(y, phi = NULL, sigma_eta = NULL, sigma_xi = NULL,
     indiv <- list()
     vec <- c()
     if (reorder == 0) { # leave the first n_indiv frequencies alone, cut the rest into blocks
+      
       vec <- (n_indiv+1):length(freq)
+      
       # blocks <- split(vec, cut(seq_along(vec), nblocks, labels = FALSE))
       blocks <- split(vec, ceiling(seq_along(vec)/blocksize))
       if (n_indiv == 0) {

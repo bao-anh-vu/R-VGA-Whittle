@@ -22,6 +22,7 @@ find_cutoff_freq <- function(signal, nsegs, power_prop = 0.5) {
     # beyond_half2 <- which(dB >= half_power2)
     
     half_power <- max(pdg_welch) * power_prop
+
     cutoff_ind <- which(pdg_welch < half_power)[1] # the 3dB cutoff is the first frequency that dips below half power
     # beyond_half <- which(pdg_welch >= half_power)
     # cutoff_ind <- beyond_half[length(beyond_half)] # the 3dB cutoff is the last frequency bin with above half power
@@ -46,8 +47,7 @@ find_cutoff_freq <- function(signal, nsegs, power_prop = 0.5) {
     theme_bw() +
     theme(text = element_text(size = 28))
 
-    print(pdg_plot)
-
+    # print(pdg_plot)
     return(list(pdg_welch = pdg_welch,
                 freq_welch = freq_welch,
                 cutoff_ind = cutoff_ind_og, 

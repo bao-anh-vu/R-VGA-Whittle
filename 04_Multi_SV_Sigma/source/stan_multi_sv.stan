@@ -89,10 +89,7 @@ functions {
   }
   
   matrix to_VAR1_trans_mat(matrix A, matrix Sigma_eta) {
-    //int d;
-    //d = rows(A);
     matrix[rows(A), cols(A)] Phi_mat;
-    //matrix[d, d] Sigma_eta_mat;
     matrix[rows(A), cols(A)] B;
     matrix[rows(A), cols(A)] P1;
     matrix[rows(A), cols(A)] Sigma_tilde;
@@ -127,20 +124,14 @@ data {
   //   num_L = d;
   // }
 
-  //matrix[d, d] Sigma_1;
   vector[d] prior_mean_Phi;
-  //matrix[d*d, d*d] prior_var_A;
   vector[d] diag_prior_var_Phi;
   vector[d + d*(d-1)/2] prior_mean_gamma;
-  //matrix[d, d] prior_var_gamma;
   vector[d + d*(d-1)/2] diag_prior_var_gamma;
 }
 
 parameters {
-  // matrix[d, d] A;
   vector[d] theta_phi;
-  //real gamma_11;
-  //real gamma_22;
   vector[d + d*(d-1)/2] gamma;
   matrix[Tfin, d] X;
 }
@@ -151,30 +142,16 @@ transformed parameters { // define the mapping from A to Phi here
   //cholesky_factor_cov[d] L;
   matrix[d,d] L;
   
-    // L = diag_matrix(exp(gamma[1:d]));
-    // L[2,1] = gamma[d+1];
-
   L = to_lowertri(gamma, d);
-  // L = diag_matrix(rep_vector(1, d));
   Sigma_eta_mat = L*L';
-  // Phi_mat = to_VAR1_trans_mat(A, Sigma_eta_mat);
-  // Phi_mat = diag_matrix(tanh(theta_phi[1:d]));
   Phi_mat = transform ? diag_matrix(tanh(theta_phi[1:d])) : diag_matrix(1 / (1+exp(-theta_phi[1:d])));
 }
 model {
-  //to_vector(A) ~ multi_normal(prior_mean_A, prior_var_A);
-  //gamma ~ multi_normal(prior_mean_gamma, prior_var_gamma);
-  // to_vector(A) ~ normal(prior_mean_A, sqrt(diag_prior_var_A));
   theta_phi ~ normal(prior_mean_Phi, sqrt(diag_prior_var_Phi));
   gamma ~ normal(prior_mean_gamma, sqrt(diag_prior_var_gamma));
   
-  // gamma ~ normal(rep_vector(0, 3), rep_vector(1, 3));
-  // X[, 1] ~ multi_normal(rep_vector(0, d),
-  //                    arima_stationary_cov2(Phi_mat, cholesky_decompose(Sigma_eta_mat)));
   X[1, ] ~ multi_normal(rep_vector(0, d), arima_stationary_cov(Phi_mat, Sigma_eta_mat));
-  // X[, 1] ~ multi_normal(rep_vector(0, d), diag_matrix(rep_vector(1.0, d)));
   for (t in 2:Tfin)
-    // X[, t] ~ normal(Phi_mat * X[, t-1], sqrt(exp(gamma)));
     X[t, ] ~ multi_normal(Phi_mat * X[t-1, ]', Sigma_eta_mat);
   for (t in 1:Tfin)
     Y[t, ] ~ normal(rep_vector(0, d), exp(X[t, ]/2));
