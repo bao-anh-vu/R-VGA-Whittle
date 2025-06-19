@@ -47,8 +47,10 @@ find_cutoff_freq <- function(signal, nsegs, power_prop = 0.5) {
     theme_bw() +
     theme(text = element_text(size = 28))
 
+    png("./plots/pdg_welch.png", width = 1000, height = 600)
     print(pdg_plot)
-    browser()
+    dev.off()
+    # browser()
     return(list(pdg_welch = pdg_welch,
                 freq_welch = freq_welch,
                 cutoff_ind = cutoff_ind_og, 

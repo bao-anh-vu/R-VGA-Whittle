@@ -1,4 +1,4 @@
-arfima_spec_dens <- function(phi, theta, d, sigma, nu = 1, noise_dist, freq, I) {
+arfima_spec_dens <- function(phi, theta, d, sigma, nu, noise_dist, freq, I) {
   # Compute the spectral density of an ARFIMA process
   # phi: AR coefficients
   # d: fractional differencing parameter
@@ -46,7 +46,7 @@ arfima_spec_dens <- function(phi, theta, d, sigma, nu = 1, noise_dist, freq, I) 
     } else {
       spec_dens_eps <- 0 # no measurement noise
     }
-    
+
     # Maybe feed this through the compute_grad function itself?
     spec_dens <- spec_dens_x + spec_dens_eps
     log_likelihood <- - log(spec_dens) - I / spec_dens

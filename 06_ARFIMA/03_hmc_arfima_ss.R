@@ -14,6 +14,7 @@ library(fracdiff)
 source("./source/compute_periodogram.R")
 source("./source/compute_arfima_spec_dens.R")
 source("./source/fit_mle_arfima_ss.R")
+source("./source/find_optimal_nu.R")
 
 ## Flags
 date <- "20250514"
@@ -21,39 +22,38 @@ noise_dist <- "t" # "t" or "gaussian"
 save_hmc_results <- T
 
 ## Read data
-# data_dir <- "./data/"
-# n <- 5000
-# arfima_data <- readRDS(paste0(data_dir, "arfima_data_n", n, ".rds"))
-# y <- arfima_data$y
-# phi <- arfima_data$phi
-# theta <- arfima_data$theta
-# d <- arfima_data$d
-# sigma_eta <- arfima_data$sigma_eta
-# nu <- arfima_data$nu
+data_dir <- "./data/"
+n <- 3000
+arfima_data <- readRDS(paste0(data_dir, "arfima_data_n", n, "_", noise_dist, ".rds"))
+y <- arfima_data$y
+phi <- arfima_data$phi
+theta <- arfima_data$theta
+d <- arfima_data$d
+sigma_eta <- arfima_data$sigma_eta
+nu <- arfima_data$nu
 
 ## Simulate ARFIMA(1, 0.25, 1) process
-set.seed(2025)
-n <- 2500
-phi <- 0.3
-theta <- 0.7
-d <- 0.25
-sigma_eta <- 1
+# set.seed(2025)
+# n <- 5000
+# phi <- 0.3
+# theta <- 0.7
+# d <- 0.25
+# sigma_eta <- 1
 
-if (noise_dist == "t") {
-  nu <- 20 # degrees of freedom for t-distribution
-} else {
-  nu <- 0.2 # standard deviation for Gaussian noise
-}
+# if (noise_dist == "t") {
+#   nu <- 10 # degrees of freedom for t-distribution
+# } else {
+#   nu <- 0.2 # standard deviation for Gaussian noise
+# }
 
-# x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
-x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
+# x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
 # y <- x + rt(n, df = nu) # ARFIMA + noise
 
-if (noise_dist == "t") {
-  y <- x + rt(n, df = nu) # ARFIMA + noise
-} else {
-  y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
-}
+# if (noise_dist == "t") {
+#   y <- x + rt(n, df = nu) # ARFIMA + noise
+# } else {
+#   y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
+# }
 
 ## Test spectral density
 # test_x <- spectral.density(ar = phi, ma = theta, d = d, sd = sigma_eta, lambda = freq)
@@ -77,25 +77,77 @@ freq <- pgram_output$freq
 I <- pgram_output$periodogram
 
 ## MLE
-mle <- fit_mle_arfima_ss(pdg = I, freq = freq, noise_dist = noise_dist)
+# mle <- fit_mle_arfima_ss(pdg = I, freq = freq, noise_dist = noise_dist)
+
+# ## Prior parameters
+# mle_phi <- mle$par[1]
+# mle_theta <- mle$par[2]
+# mle_d <- mle$par[3]
+# mle_sigma_eta <- mle$par[4]
+# mle_nu <- mle$par[5]
+
+# if (noise_dist == "t") {
+#   prior_mean_nu <- log(mle_nu - 2)
+#   prior_var_nu <- 0.5 # variance for nu
+# } else {
+#   prior_mean_nu <- log(mle_nu^2)
+#   prior_var_nu <- 0.5 # variance for nu
+# }
+# # prior_mean <- c(tanh(mle_phi), tanh(mle_theta), 0.5*tanh(mle_d), sqrt(exp(mle_sigma_eta)), sqrt(exp(mle_nu)))
+# prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
+# diag_prior_var <- c(rep(0.5, 4), prior_var_nu) # identity matrix
+
+# mle <- find_optimal_nu(pdg = I, freq = freq, noise_dist = noise_dist)
+mle <- fit_mle_arfima_ss1(pdg = I, freq = freq, noise_dist = noise_dist)$par
 
 ## Prior parameters
-mle_phi <- mle$par[1]
-mle_theta <- mle$par[2]
-mle_d <- mle$par[3]
-mle_sigma_eta <- mle$par[4]
-mle_nu <- mle$par[5]
+mle_phi <- mle[1]
+mle_theta <- mle[2]
+mle_d <- mle[3]
+mle_sigma_eta <- mle[4]
+mle_nu <- mle[5]
 
 if (noise_dist == "t") {
-  prior_mean_nu <- log(mle_nu - 2)
-  prior_var_nu <- 0.5 # variance for nu
+prior_mean_nu <- log(mle_nu - 2)
+prior_var_nu <- 0.5 # variance for nu
 } else {
   prior_mean_nu <- log(mle_nu^2)
   prior_var_nu <- 0.5 # variance for nu
 }
+
 # prior_mean <- c(tanh(mle_phi), tanh(mle_theta), 0.5*tanh(mle_d), sqrt(exp(mle_sigma_eta)), sqrt(exp(mle_nu)))
 prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
-diag_prior_var <- c(rep(0.5, 4), prior_var_nu) # identity matrix
+diag_prior_var <- c(rep(0.5, 4), prior_var_nu) 
+
+
+## Simulate from prior
+prior_samples <- rmvnorm(10000, prior_mean, diag(diag_prior_var))
+phi_samples <- tanh(prior_samples[, 1])
+theta_samples <- tanh(prior_samples[, 2])
+d_samples <- 0.5 * tanh(prior_samples[, 3]) 
+sigma_eta_samples <- sqrt(exp(prior_samples[, 4]))
+
+if (noise_dist == "t") {
+  nu_samples <- 2 + exp(prior_samples[, 5])
+} else {# gaussian
+  nu_samples <- sqrt(exp(prior_samples[, 5]))
+}
+
+png("./plots/prior_hmc.png", width = 800, height = 600)
+par(mfrow = c(2, 3))
+plot(density(phi_samples), main = "phi", xlim = c(-1, 1))
+abline(v = phi, col = "red", lty = 2)
+plot(density(theta_samples), main = "theta", xlim = c(-1, 1))
+abline(v = theta, col = "red", lty = 2)
+plot(density(d_samples), main = "d", xlim = c(0, 1))
+abline(v = d, col = "red", lty = 2)
+plot(density(sigma_eta_samples), main = "sigma_eta")
+abline(v = sigma_eta, col = "red", lty = 2) 
+plot(density(nu_samples), main = "nu")
+abline(v = nu, col = "red", lty = 2)
+dev.off()
+
+browser()
 
 ##########################
 ##          HMC         ##
@@ -108,7 +160,7 @@ hmc_arfima_model <- cmdstan_model(
     cpp_options = list(stan_threads = TRUE)
 )
 
-hmc_arfima_data <- list(N = length(y), y = y, K = 10, #mu = 0,
+hmc_arfima_data <- list(N = length(y), y = y, K = 20, #mu = 0,
                         use_t_noise = ifelse(noise_dist == "t", 1, 0),
                         prior_mean = prior_mean, diag_prior_var = diag_prior_var)
 
@@ -116,6 +168,7 @@ fit_hmc_arfima <- hmc_arfima_model$sample(
     hmc_arfima_data,
     chains = n_chains,
     threads = parallel::detectCores(),
+    parallel_chains = n_chains,
     refresh = 500,
     iter_warmup = burn_in,
     iter_sampling = n_post_samples
@@ -124,6 +177,7 @@ fit_hmc_arfima <- hmc_arfima_model$sample(
 hmc_results <- list(draws = fit_hmc_arfima$draws(variables = c("phi", "theta", "d", "sigma_eta", "nu")),
                     time = fit_hmc_arfima$time,
                     summary = fit_hmc_arfima$cmdstan_summary)
+
 # fit_hmc_arfima$cmdstan_summary()
 # fit_hmc_arfima$diagnostic_summary()
 
@@ -175,7 +229,7 @@ png(paste0("./plots/hmc_posterior_", noise_dist, ".png"), width = 1000, height =
 grid.arrange(grobs = plots, ncol = 3)
 dev.off()
 
-plot_range <- 1:10000
+plot_range <- 1:length(hmc.phi) #10000
 png(paste0("./plots/hmc_trace_", noise_dist, ".png"), width = 1000, height = 600)
 par(mfrow = c(3, 2))
 plot(hmc.phi[plot_range], type = "l", main = "phi", ylab = "phi")

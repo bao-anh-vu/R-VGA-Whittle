@@ -12,8 +12,10 @@ reticulate::use_condaenv("myenv", required = TRUE)
 library(keras)
 library(ggplot2)
 library(gridExtra)
+# library(parallel)
 
 source("./source/fit_mle_arfima_ss.R")
+source("./source/find_optimal_nu.R")
 source("./source/run_rvgaw_arfima_ss.R")
 source("./source/find_cutoff_freq.R")
 source("./source/compute_periodogram.R")
@@ -49,10 +51,14 @@ if (length(gpus) > 0) {
 date <- "20250514"
 noise_dist <- "t" # "t" or "gaussian"
 save_rvgaw_results <- T
+fix_nu <- F # whether to fix nu in the MLE estimation
+
+## Directories
+data_dir <- "./data/"
+result_dir <- "./results/"
 
 ## Read data
-# data_dir <- "./data/"
-# n <- 5000
+# n <- 3000
 # arfima_data <- readRDS(paste0(data_dir, "arfima_data_n", n, "_", noise_dist, ".rds"))
 # y <- arfima_data$y
 # phi <- arfima_data$phi
@@ -62,127 +68,109 @@ save_rvgaw_results <- T
 # nu <- arfima_data$nu
 
 ## Simulate ARFIMA(1, 0.25, 1) process
-set.seed(2025)
-n <- 5000
+# set.seed(2025)         
+n <- 50000
 phi <- 0.3
-theta <- 0.7
+theta <- 0.5 #-0.5
 d <- 0.25
 sigma_eta <- 1
 
 if (noise_dist == "t") {
-  nu <- 50 # degrees of freedom for t-distribution
+  nu <- 4 # degrees of freedom for t-distribution
 } else {
   nu <- 0.2 # standard deviation for Gaussian noise
 }
 
-# x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
 x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
-# y <- x + rt(n, df = nu) # ARFIMA + noise
 
 if (noise_dist == "t") {
   y <- x + rt(n, df = nu) # ARFIMA + noise
 } else {
   y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
 }
-## Result directory
-result_dir <- "./results/"
 
-## Flags
-date <- "20250514"
 
 ## Compute periodogram
 pgram_output <- compute_periodogram(y)
 freq <- pgram_output$freq
 I <- pgram_output$periodogram
 
-# llh <- arfima_spec_dens(phi = phi, 
-#                         theta = theta, 
-#                         d = d, 
-#                         sigma = sigma_eta, 
-#                         nu = nu,
-#                         noise_dist = noise_dist,
-#                         I = I,
-#                         freq = freq)
+# mle <- fit_mle_arfima_ss1(pdg = I, freq = freq, noise_dist = noise_dist)$par
 
-## MLE
-mle <- fit_mle_arfima_ss(pdg = I, freq = freq, noise_dist = noise_dist)
-# if (noise_dist == "t") {
-#   ini_params <- c(0, 0, 0, 0.001, 3)
-#   lower_bounds <- c(-0.9999, -0.9999, -0.4999, 0.001, 3)
-#   upper_bounds <- c(0.9999, 0.9999, 0.4999, 10, 100)
-# } else {
-#   ini_params <- c(0, 0, 0, 0.001, 0.001)
-#   lower_bounds <- c(-0.9999, -0.9999, -0.4999, 0.001, 0.001)
-#   upper_bounds <- c(0.9999, 0.9999, 0.4999, 10, 10)
-# }
+mle <- find_optimal_nu(pdg = I, freq = freq, noise_dist = noise_dist)
 
-# mle <- optim(par = ini_params, 
-#               fn = function(params) {
-#                   phi_i <- params[1]
-#                   theta_i <- params[2]
-#                   d_i <- params[3]
-#                   sigma_i <- params[4]
-#                   nu_i <- params[5]
-#                   out <- arfima_spec_dens(phi = phi_i, 
-#                                           theta = theta_i, 
-#                                           d = d_i, 
-#                                           sigma = sigma_i, 
-#                                           nu = nu_i,
-#                                           noise_dist = noise_dist,
-#                                           I = I,
-#                                           freq = freq)
-#                   - out$log_likelihood # minimise the negative log likelihood
-#               }, 
-#               method = "L-BFGS-B", 
-#               lower = lower_bounds, 
-#               upper = upper_bounds)
 
 ## Prior parameters
-mle_phi <- mle$par[1]
-mle_theta <- mle$par[2]
-mle_d <- mle$par[3]
-mle_sigma_eta <- mle$par[4]
-mle_nu <- mle$par[5]
+mle_phi <- mle[1]
+mle_theta <- mle[2]
+mle_d <- mle[3]
+mle_sigma_eta <- mle[4]
+mle_nu <- mle[5]
+
+param_names <- c("phi", "theta", "d", "sigma_eta", "nu")
+true_vals <- c(phi, theta, d, sigma_eta, nu)
+
+mle_df <- data.frame(param = param_names,
+                    true_vals = true_vals,
+                    mle = mle)
+print(mle_df)
+
+browser()
 
 if (noise_dist == "t") {
-  prior_mean_nu <- log(mle_nu - 2)
-  prior_var_nu <- 0.5 # variance for nu
+prior_mean_nu <- log(mle_nu - 2)
+prior_var_nu <- 0.5 # variance for nu
 } else {
   prior_mean_nu <- log(mle_nu^2)
   prior_var_nu <- 0.5 # variance for nu
 }
-# prior_mean <- c(tanh(mle_phi), tanh(mle_theta), 0.5*tanh(mle_d), sqrt(exp(mle_sigma_eta)), sqrt(exp(mle_nu)))
-prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
-diag_prior_var <- c(rep(0.5, 4), prior_var_nu) # identity matrix
+
+logit_fun <- function(x) {
+  return(log(x / (1 - x)))
+}
+
+prior_mean <- c(atanh(mle_phi), logit_fun(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
+# prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
+diag_prior_var <- c(rep(0.5, 4), prior_var_nu) 
+
+inv_logit <- function(x) {
+  return(exp(x) / (1 + exp(x)))
+}
 
 ## Simulate from prior
 prior_samples <- rmvnorm(10000, prior_mean, diag(diag_prior_var))
 phi_samples <- tanh(prior_samples[, 1])
-theta_samples <- tanh(prior_samples[, 2])
+# theta_samples <- tanh(prior_samples[, 2])
+theta_samples <- inv_logit(prior_samples[, 2])
+
 d_samples <- 0.5 * tanh(prior_samples[, 3]) 
 sigma_eta_samples <- sqrt(exp(prior_samples[, 4]))
 # nu_samples <- 2 + exp(prior_samples[, 5])
 
-if (noise_dist == "t") {
-  nu_samples <- 2 + exp(prior_samples[, 5])
-} else {# gaussian
-  nu_samples <- sqrt(exp(prior_samples[, 5]))
+if (!fix_nu) {
+  if (noise_dist == "t") {
+    nu_samples <- 2 + exp(prior_samples[, 5])
+  } else {# gaussian
+    nu_samples <- sqrt(exp(prior_samples[, 5]))
+  }
 }
 
 png(paste0("./plots/prior_", noise_dist, ".png"), width = 800, height = 600)
 par(mfrow = c(2, 3))
 plot(density(phi_samples), main = "phi", xlim = c(-1, 1))
 abline(v = phi, col = "red", lty = 2)
-plot(density(theta_samples), main = "theta", xlim = c(-1, 1))
+plot(density(theta_samples), main = "theta", xlim = c(0, 1))
 abline(v = theta, col = "red", lty = 2)
 plot(density(d_samples), main = "d", xlim = c(0, 1))
 abline(v = d, col = "red", lty = 2)
 plot(density(sigma_eta_samples), main = "sigma_eta", xlim = c(0, 5))
 abline(v = sigma_eta, col = "red", lty = 2) 
-plot(density(nu_samples), main = "nu")
-abline(v = nu, col = "red", lty = 2)
+if (!fix_nu) {
+  plot(density(nu_samples), main = "nu", xlim = c(0, 20))
+  abline(v = nu, col = "red", lty = 2)
+}
 dev.off()
-
+browser()
 ##########################################
 ##            R-VGA-Whittle             ##
 ##########################################

@@ -35,7 +35,6 @@ data {
 
 parameters {
   vector[N] x;  // latent state
-  real mu;
   real tilde_phi;
   real tilde_theta;
   real tilde_d;
@@ -48,14 +47,19 @@ transformed parameters {
   real<lower = -1, upper = 1> theta = tanh(tilde_theta);
   real<lower = -0.5, upper = 0.5> d = 0.5 * tanh(tilde_d);
   real<lower = 0> sigma_eta = sqrt(exp(tilde_sigma_eta));
-  real<lower = 0> nu = sqrt(exp(tilde_nu));
+  real<lower = 0> nu;
+
+  if (use_t_noise == 1) {
+    nu = 2 + exp(tilde_nu);
+  } else { // gaussian noise
+    nu = sqrt(exp(tilde_nu));
+  }
 }
 
 model {
   vector[N - K] x_diff = frac_diff(x, d, K);
   vector[N - K] eta;
-  vector[N] v;
-
+  
   // Priors on transformed parameters
   tilde_phi ~ normal(prior_mean[1], sqrt(diag_prior_var[1]));
   tilde_theta ~ normal(prior_mean[2], sqrt(diag_prior_var[2]));
@@ -63,12 +67,12 @@ model {
   tilde_sigma_eta ~ normal(prior_mean[4], sqrt(diag_prior_var[4]));
   tilde_nu ~ normal(prior_mean[5], sqrt(diag_prior_var[5]));
 
-  eta[1] = x_diff[1] - mu;
+  eta[1] = x_diff[1];
 
   for (t in 2:(N - K)) {
-    real ar_term = phi * (x_diff[t - 1] - mu);
+    real ar_term = phi * (x_diff[t - 1]);
     real ma_term = theta * eta[t - 1];
-    real pred = mu + ar_term + ma_term;
+    real pred = ar_term + ma_term;
     eta[t] = x_diff[t] - pred;
   }
 
@@ -77,8 +81,8 @@ model {
   
   // Observations
   if (use_t_noise) {
-    v = y - x; // Measurement noise 
-    v ~ student_t(nu, 0, 1);
+    vector[N] v = y - x; // Measurement noise 
+    v ~ student_t(nu, 0, 1); // t distribution with nu degrees of freedom
   } else {
     y ~ normal(x, nu); 
   }

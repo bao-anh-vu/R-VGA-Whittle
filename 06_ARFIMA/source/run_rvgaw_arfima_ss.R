@@ -1,6 +1,7 @@
 run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL, 
                            transform = "arctanh",
                            noise_dist = "gaussian",
+                           fix_nu = F,
                            prior_mean = 0, prior_var = 1,
                            deriv = "tf", S = 1000L,
                            n_post_samples = 10000,
@@ -156,9 +157,16 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
         for (v in 1:length(a_vals)) { # for each step in the tempering schedule
 
             a <- a_vals[v]
-
-            P <- chol2inv(chol(prec_temp))
-            samples <- rmvnorm(S, mu_temp, P)
+            
+            if (fix_nu) {
+                P <- chol2inv(chol(prec_temp))
+                samples <- rmvnorm(S, mu_temp, P)
+                nu_samples <- ifelse(noise_dist == "t", 5, 0.2) # fixed value for nu
+                samples <- cbind(samples, nu_samples) # add a column of zeros for nu
+            } else {
+                P <- chol2inv(chol(prec_temp))
+                samples <- rmvnorm(S, mu_temp, P)
+            }
 
             grads <- list()
             hessian <- list()
@@ -247,11 +255,15 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
     rvgaw.d <- 0.5 * tanh(theta.post_samples[, 3])
     rvgaw.sigma_eta <- sqrt(exp(theta.post_samples[, 4]))
     
-    if (noise_dist == "t") {
+    if (!fix_nu) {
+        if (noise_dist == "t") {
         rvgaw.nu <- 2 + exp(theta.post_samples[, 5]) # nu = 2 + exp(theta.post_samples[, 5])
-    } else { # gaussian
-        rvgaw.nu <- sqrt(exp(theta.post_samples[, 5]))
-    } 
+        } else { # gaussian
+            rvgaw.nu <- sqrt(exp(theta.post_samples[, 5]))
+        } 
+    } else {
+        rvgaw.nu <- ifelse(noise_dist == "t", 5, 0.2) # fixed value for nu
+    }
 
     rvgaw.post_samples <- list(
         phi = rvgaw.phi,

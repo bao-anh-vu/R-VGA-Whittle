@@ -15,6 +15,7 @@ library(astsa)
 source("./source/compute_periodogram.R")
 source("./source/compute_arfima_spec_dens.R")
 source("./source/fit_mle_arfima_ss.R")
+source("./source/find_optimal_nu.R")
 
 ## Flags
 date <- "20250514"
@@ -22,9 +23,12 @@ noise_dist <- "t" # "t" or "gaussian"
 save_hmcw_results <- T
 fix_sigma <- F # If TRUE, sigma_eta is fixed to 1 in the model
 
-## Read data
+## Directories
 data_dir <- "./data/"
-n <- 5000
+result_dir <- "./results/"
+
+## Read data
+n <- 3000
 arfima_data <- readRDS(paste0(data_dir, "arfima_data_n", n, "_", noise_dist, ".rds"))
 y <- arfima_data$y
 phi <- arfima_data$phi
@@ -70,16 +74,9 @@ nu <- arfima_data$nu
 #   series = x, start = c(0.1, 0.1, 0.1), ar.order = 1, ma.order = 1, include.d = F
 # )
 
-## Result directory
-result_dir <- "./results/"
-hmcw_filepath <- paste0(result_dir, "hmcw_arfima_ss_results_n", n, 
-                       "_", date, ".rds")
-
-  
-## HMC-Whittle parameters 
-n_chains <- 1
-n_post_samples <- 10000
-burn_in <- 5000
+#############################
+##    Setting up priors    ##  
+#############################
 
 ## Compute periodogram
 pgram_output <- compute_periodogram(y)
@@ -98,25 +95,41 @@ I <- pgram_output$periodogram
 # head(spec_dens)
 
 ## MLE
-mle <- fit_mle_arfima_ss(pdg = I, freq = freq, noise_dist = noise_dist)
+# mle <- fit_mle_arfima_ss1(pdg = I, freq = freq, noise_dist = noise_dist)
+# mle_phi <- mle$par[1]
+# mle_theta <- mle$par[2]
+# mle_d <- mle$par[3]
+# mle_sigma_eta <- mle$par[4]
+# mle_nu <- mle$par[5]
+
+# param_names <- c("phi", "theta", "d", "sigma_eta", "nu")
+# true_vals <- c(phi, theta, d, sigma_eta, nu)
+# mle_df <- data.frame(param = param_names,
+#                       true_vals = true_vals,
+#                       mle = mle$par)
+mle <- fit_mle_arfima_ss1(pdg = I, freq = freq, noise_dist = noise_dist)$par
+
+# mle <- find_optimal_nu(pdg = I, freq = freq, noise_dist = noise_dist)
 
 ## Prior parameters
-mle_phi <- mle$par[1]
-mle_theta <- mle$par[2]
-mle_d <- mle$par[3]
-mle_sigma_eta <- mle$par[4]
-mle_nu <- mle$par[5]
+mle_phi <- mle[1]
+mle_theta <- mle[2]
+mle_d <- mle[3]
+mle_sigma_eta <- mle[4]
+mle_nu <- mle[5]
 
 if (noise_dist == "t") {
-  prior_mean_nu <- log(mle_nu - 2)
-  prior_var_nu <- 0.5 # variance for nu
+prior_mean_nu <- log(mle_nu - 2)
+prior_var_nu <- 0.5 # variance for nu
 } else {
   prior_mean_nu <- log(mle_nu^2)
   prior_var_nu <- 0.5 # variance for nu
 }
+
 # prior_mean <- c(tanh(mle_phi), tanh(mle_theta), 0.5*tanh(mle_d), sqrt(exp(mle_sigma_eta)), sqrt(exp(mle_nu)))
 prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
-diag_prior_var <- c(rep(0.5, 4), prior_var_nu) # identity matrix
+diag_prior_var <- c(rep(0.5, 4), prior_var_nu) 
+
 
 ## Simulate from prior
 prior_samples <- rmvnorm(10000, prior_mean, diag(diag_prior_var))
@@ -145,6 +158,21 @@ plot(density(nu_samples), main = "nu")
 abline(v = nu, col = "red", lty = 2)
 dev.off()
 
+
+#############################
+##       HMC-Whittle       ##
+#############################
+
+hmcw_filepath <- paste0(result_dir, "hmcw_arfima_ss_results_n", n, 
+                       "_", noise_dist, "_", date, ".rds")
+
+  
+## HMC-Whittle parameters 
+n_chains <- 2
+n_post_samples <- 10000
+burn_in <- 5000
+
+
 ## HMC-Whittle
 whittle_stan_file <- "./source/arfima_ss_whittle.stan"
 
@@ -161,6 +189,7 @@ whittle_arfima_data <- list(nfreq = length(freq), freqs = freq, periodogram = I,
 fit_stan_arfima_whittle <- whittle_arfima_model$sample(
     whittle_arfima_data,
     chains = n_chains,
+    parallel_chains = n_chains,
     threads = parallel::detectCores(),
     refresh = 500,
     iter_warmup = burn_in / n_chains,
@@ -168,7 +197,7 @@ fit_stan_arfima_whittle <- whittle_arfima_model$sample(
 )
 
 hmcw_results <- list(draws = fit_stan_arfima_whittle$draws(variables = c("phi", "theta", "d", "sigma_eta", "nu")),
-                    time = fit_stan_arfima_whittle$time,
+                    time = fit_stan_arfima_whittle$time(),
                     summary = fit_stan_arfima_whittle$cmdstan_summary)
 # fit_stan_arfima_whittle$cmdstan_summary()
 # fit_stan_arfima_whittle$diagnostic_summary()
