@@ -5,13 +5,6 @@ rm(list = ls())
 
 library(mvtnorm)
 library(coda)
-# library(Deriv)
-# library(cmdstanr)
-# library(tensorflow)
-# reticulate::use_condaenv("myenv", required = TRUE)
-# library(keras)
-# library(stats)
-# library(bspec)
 library(tidyr)
 library(dplyr)
 library(ggplot2)
@@ -22,15 +15,13 @@ library(latex2exp)
 
 source("./source/compute_periodogram.R")
 source("./source/find_cutoff_freq.R")
-
+source("./source/hmc_diagnostics.R")
 
 ## Flags
 date <- "20230525" # "20230918" #the 20230918 version has sigma_eta = sqrt(0.1)
 # date <- "20230918"
 
 ## R-VGA flags
-# regenerate_data <- F
-# save_data <- F
 use_tempering <- T
 temper_first <- T
 reorder <- 0 # "decreasing" # or decreasing # or a number
@@ -42,10 +33,6 @@ transform <- "arctanh"
 plot_trajectories <- T
 save_plots <- T
 
-# n_post_samples <- 10000 # per chain
-# burn_in <- 5000 # per chain
-# n_chains <- 2
-
 n <- 10000
 phi <- 0.9
 
@@ -53,7 +40,7 @@ phi <- 0.9
 phi_string <- sub("(\\d+)\\.(\\d+)", "\\1\\2", toString(phi)) ## removes decimal point fron the number
 print("Reading saved data...")
 lgss_data <- readRDS(file = paste0("./data/lgss_data_n", n, "_phi", phi_string, "_", date, ".rds"))
-  
+
 y <- lgss_data$y
 x <- lgss_data$x
 phi <- lgss_data$phi
@@ -63,6 +50,8 @@ sigma_eta <- lgss_data$sigma_eta
 ## Read results
 print("Reading saved results...")
 result_directory <- "./results/"
+
+## R-VGA-Whittle settings
 
 S <- 1000L
 # nblocks <- 100
@@ -101,14 +90,20 @@ if (!is.null(blocksize)) {
     block_info <- ""
 }
 
-rvgaw_filepath <- paste0(result_directory, "rvga_whittle_results_", transform, "_n", n,
-                         "_phi", phi_string, temper_info, reorder_info, block_info, "_", date, ".rds")
+rvgaw_filepath <- paste0(
+    result_directory, "rvga_whittle_results_", transform, "_n", n,
+    "_phi", phi_string, temper_info, reorder_info, block_info, "_", date, ".rds"
+)
 
-hmc_filepath <- paste0(result_directory, "hmc_results_n", n, 
-                       "_phi", phi_string, "_", date, ".rds")
+hmc_filepath <- paste0(
+    result_directory, "hmc_results_n", n,
+    "_phi", phi_string, "_", date, ".rds"
+)
 
-hmcw_filepath <- paste0(result_directory, "hmcw_results_n", n, 
-                       "_phi", phi_string, "_", date, ".rds")
+hmcw_filepath <- paste0(
+    result_directory, "hmcw_results_n", n,
+    "_phi", phi_string, "_", date, ".rds"
+)
 
 
 rvgaw_results <- readRDS(rvgaw_filepath)
@@ -119,89 +114,77 @@ param_names <- c("phi", "sigma[eta]", "sigma[epsilon]")
 param_values <- c(phi, sigma_eta, sigma_eps)
 param_dim <- length(param_names)
 
-rvgaw.phi <- rvgaw_results$post_samples$phi
-rvgaw.sigma_eta <- rvgaw_results$post_samples$sigma_eta
-rvgaw.sigma_eps <- rvgaw_results$post_samples$sigma_eps
+## Extract posterior samples
+rvgaw_samples <- rvgaw_results$post_samples
+hmc_samples <- hmc_results$draws
+hmcw_samples <- hmcw_results$draws
 
-hmc.phi <- c(hmc_results$draws[, , 1]) # tanh(hmc.theta_phi)
-hmc.sigma_eta <- c(hmc_results$draws[, , 2]) # sqrt(exp(hmc.theta_sigma))
-hmc.sigma_eps <- c(hmc_results$draws[, , 3]) # sqrt(exp(hmc.theta_sigma))
+## Trace plots
+png(paste0("./plots/hmc_lgss_trace_n", n, ".png"), width = 1200, height = 600)
+bayesplot::color_scheme_set("viridis")
+bayesplot::mcmc_trace(hmc_samples)
+dev.off()
 
-hmcw.phi <- c(hmcw_results$draws[, , 1])
-hmcw.sigma_eta <- c(hmcw_results$draws[, , 2])
-hmcw.sigma_eps <- c(hmcw_results$draws[, , 3])
+png(paste0("./plots/hmcw_lgss_trace_n", n, ".png"), width = 1200, height = 600)
+bayesplot::color_scheme_set("viridis")
+bayesplot::mcmc_trace(hmcw_samples)
+dev.off()
 
-## HMC and HMCW trace plots
-hmc.phi_mcmc <- mcmc(hmc.phi)
-hmc.sigma_eta_mcmc <- mcmc(hmc.sigma_eta)
-hmc.sigma_eps_mcmc <- mcmc(hmc.sigma_eps)
+###################################
+##        MCMC diagnostics       ##
+###################################
 
-hmcw.phi_mcmc <- mcmc(hmcw.phi)
-hmcw.sigma_eta_mcmc <- mcmc(hmcw.sigma_eta)
-hmcw.sigma_eps_mcmc <- mcmc(hmcw.sigma_eps)
+burn_in <- 1000
+hmc_samples <- hmc_samples[-(1:burn_in), , ]
+hmcw_samples <- hmcw_samples[-(1:burn_in), , ]
+
+## HMC
+hmc_samples_ls <- lapply(1:param_dim, function(i) {
+    c(hmc_samples[, , i])
+})
+hmc_dns <- hmc_diagnostics(hmc_samples_ls)
+
+## HMCW
+hmcw_samples_ls <- lapply(1:param_dim, function(i) {
+    c(hmcw_samples[, , i])
+})
+hmcw_dns <- hmc_diagnostics(hmcw_samples_ls)
+
+hmc.Rhat <- hmc_dns$Rhat
+hmcw.Rhat <- hmcw_dns$Rhat
+hmc.ESS <- hmc_dns$ESS
+hmcw.ESS <- hmcw_dns$ESS
+
+methods <- c("HMC-Whittle", "HMC-exact")
+metrics <- c("Rhat", "ESS")
+dns <- data.frame(
+    params = rep(param_names, times = 2),
+    metrics = rep(metrics, each = length(param_names) * 2),
+    method = rep(methods, each = length(param_names)),
+    value = formatC(c(hmcw.Rhat, hmc.Rhat, hmcw.ESS, hmc.ESS),
+        format = "f", width = 5
+    )
+)
+
+write.csv(dns, file = paste0("./results/lgss_diagnostics", block_info, ".csv"), row.names = F)
+
+## Turning the samples into data frames
+rvgaw.df <- data.frame(do.call(cbind, rvgaw_samples))
+hmc.df <- data.frame(do.call(cbind, hmc_samples_ls))
+hmcw.df <- data.frame(do.call(cbind, hmcw_samples_ls))
+
+names(rvgaw.df) <- param_names
+names(hmc.df) <- param_names
+names(hmcw.df) <- param_names
+
+## Thinning if needed
+thin_interval <- 1
+inds <- seq(1, nrow(hmc.df), by = thin_interval)
+hmc_thin.df <- hmc.df[inds, ]
 
 ########################################
 ##          Posterior plots           ##
 ########################################
-
-hmc.ESS <- c()
-hmc.IF <- c()
-hmc.acf <- list()
-
-hmcw.ESS <- c()
-hmcw.IF <- c()
-hmcw.acf <- list()
-
-
-## ACF, ESS and inefficiency factor
-hmc.acf[[1]] <- autocorr(hmc.phi_mcmc, lags = c(0, 1, 5, 10, 20, 50, 100), relative = F)
-hmc.acf[[2]] <- autocorr(hmc.sigma_eta_mcmc, lags = c(0, 1, 5, 10, 20, 50, 100), relative = F)
-hmc.acf[[3]] <- autocorr(hmc.sigma_eps_mcmc, lags = c(0, 1, 5, 10, 20, 50, 100), relative = F)
-
-hmc.ESS[1] <- effectiveSize(hmc.phi_mcmc)
-hmc.ESS[2] <- effectiveSize(hmc.sigma_eta_mcmc)
-hmc.ESS[3] <- effectiveSize(hmc.sigma_eps_mcmc)
-
-hmc.IF[1] <- length(hmc.phi_mcmc) / hmc.ESS[1]
-hmc.IF[2] <- length(hmc.sigma_eta_mcmc) / hmc.ESS[2]
-hmc.IF[3] <- length(hmc.sigma_eps_mcmc) / hmc.ESS[2]
-
-hmcw.acf[[1]] <- autocorr(hmcw.phi_mcmc, lags = c(0, 1, 5, 10, 20, 50, 100), relative = F)
-hmcw.acf[[2]] <- autocorr(hmcw.sigma_eta_mcmc, lags = c(0, 1, 5, 10, 20, 50, 100), relative = F)
-hmcw.acf[[3]] <- autocorr(hmcw.sigma_eps_mcmc, lags = c(0, 1, 5, 10, 20, 50, 100), relative = F)
-
-hmcw.ESS[1] <- effectiveSize(hmcw.phi_mcmc)
-hmcw.ESS[2] <- effectiveSize(hmcw.sigma_eta_mcmc)
-hmcw.ESS[3] <- effectiveSize(hmcw.sigma_eps_mcmc)
-
-hmcw.IF[1] <- length(hmcw.phi_mcmc) / hmcw.ESS[1]
-hmcw.IF[2] <- length(hmcw.sigma_eta_mcmc) / hmcw.ESS[2]
-hmcw.IF[3] <- length(hmcw.sigma_eps_mcmc) / hmcw.ESS[2]
-
-## Thinning
-thin_interval <- 2
-hmc_thin.phi <- as.vector(window(hmc.phi_mcmc, thin = thin_interval))
-hmc_thin.sigma_eta <- as.vector(window(hmc.sigma_eta_mcmc, thin = thin_interval))
-hmc_thin.sigma_eps <- as.vector(window(hmc.sigma_eps_mcmc, thin = thin_interval))
-
-# hmcw.phi_thin <- as.vector(window(hmcw.phi_mcmc, thin = 1))
-# hmcw.sigma_eta_thin <- as.vector(window(hmcw.sigma_eta_mcmc, thin = 1))
-# hmcw.sigma_eps_thin <- as.vector(window(hmcw.sigma_eps_mcmc, thin = 1))
-
-rvgaw.df <- data.frame(rvgaw.phi, rvgaw.sigma_eta, rvgaw.sigma_eps)
-hmc.df <- data.frame(hmc.phi, hmc.sigma_eta, hmc.sigma_eps)
-hmc_thin.df <- data.frame(hmc_thin.phi, hmc_thin.sigma_eta, hmc_thin.sigma_eps)
-hmcw.df <- data.frame(hmcw.phi, hmcw.sigma_eta, hmcw.sigma_eps)
-
-names(rvgaw.df) <- param_names
-names(hmc.df) <- param_names
-names(hmc_thin.df) <- param_names
-names(hmcw.df) <- param_names
-
-
-# true_vals.df <- data.frame(phi = phi, sigma_eta = sigma_eta)
-
-## Posterior plots
 
 plots <- list()
 
@@ -309,31 +292,139 @@ if (save_plots) {
 
 ## Timing comparison
 rvgaw.time <- rvgaw_results$time_elapsed[3]
-hmcw.time <- sum(hmcw_results$time()$chains$total)
-hmc.time <- sum(hmc_results$time()$chains$total)
+hmcw.time <- hmcw_results$time$total
+hmc.time <- hmc_results$time$total
 print(data.frame(
     method = c("R-VGA-Whittle", "HMC-Whittle", "HMC-exact"),
     time = c(rvgaw.time, hmcw.time, hmc.time)
 ))
 
-## Trajectories/Trace plots
-if (plot_trajectories) {
-    mu_phi <- sapply(rvgaw_results$mu, function(x) x[1])
-    mu_sigma_eta <- sapply(rvgaw_results$mu, function(x) x[2])
-    mu_sigma_eps <- sapply(rvgaw_results$mu, function(x) x[3])
-
-    if (transform == "arctanh") {
-        mu_phi <- tanh(mu_phi)
-    } else { # logit transform
-        mu_phi <- exp(mu_phi) / (1 + exp(mu_phi))
-    }
-    mu_sigma_eta <- sqrt(exp(mu_sigma_eta))
-    mu_sigma_eps <- sqrt(exp(mu_sigma_eps))
-
-    true_df <- data.frame(
+## HMC/HMC-Whittle trace plots
+true_df <- data.frame(
         param = param_names,
         value = param_values
     )
+
+hmc.df_long <- hmc.df %>%
+    mutate(n = row_number()) %>%
+    pivot_longer(
+        cols = !n,
+        names_to = "param", values_to = "value"
+    )
+
+hmc_thin.df_long <- hmc_thin.df %>%
+    mutate(n = row_number()) %>%
+    pivot_longer(
+        cols = !n,
+        names_to = "param", values_to = "value"
+    )
+
+hmcw.df_long <- hmcw.df %>%
+    mutate(n = row_number()) %>%
+    pivot_longer(
+        cols = !n,
+        names_to = "param", values_to = "value"
+    )
+
+hmc.traceplot <- hmc.df_long %>% ggplot() +
+    geom_line(aes(x = n, y = value), linewidth = 1) +
+    geom_hline(
+        data = true_df, aes(yintercept = value), col = "red",
+        linetype = "dashed", linewidth = 1.5
+    ) +
+    facet_wrap(~param, scales = "free", labeller = label_parsed) +
+    theme_bw() +
+    theme(text = element_text(size = 28)) +
+    xlab("Iterations") +
+    ylab("Value")
+
+print(hmc.traceplot)
+
+hmc_thin.traceplot <- hmc_thin.df_long %>% ggplot() +
+    geom_line(aes(x = n, y = value), linewidth = 1) +
+    geom_hline(
+        data = true_df, aes(yintercept = value), col = "red",
+        linetype = "dashed", linewidth = 1.5
+    ) +
+    facet_wrap(~param, scales = "free", labeller = label_parsed) +
+    theme_bw() +
+    theme(text = element_text(size = 28)) +
+    xlab("Iterations") +
+    ylab("Value")
+
+print(hmc_thin.traceplot)
+
+hmcw.traceplot <- hmcw.df_long %>% ggplot() +
+    geom_line(aes(x = n, y = value), linewidth = 1) +
+    geom_hline(
+        data = true_df, aes(yintercept = value), col = "red",
+        linetype = "dashed", linewidth = 1.5
+    ) +
+    facet_wrap(~param, scales = "free", labeller = label_parsed) +
+    theme_bw() +
+    theme(text = element_text(size = 28)) +
+    xlab("Iterations") +
+    ylab("Value")
+
+print(hmcw.traceplot)
+
+if (save_plots) {
+    png("./plots/lgss_hmc_traceplot.png", width = 1500, height = 500)
+    print(hmc.traceplot)
+    dev.off()
+
+    png("./plots/lgss_hmc_traceplot_thin.png", width = 1500, height = 500)
+    print(hmc_thin.traceplot)
+    dev.off()
+
+    png("./plots/lgss_hmcw_traceplot.png", width = 1500, height = 500)
+    print(hmcw.traceplot)
+    dev.off()
+}
+
+## R-VGA-Whittle Trajectories/Trace plots
+if (plot_trajectories) {
+    # mu_theta_phi <- sapply(rvgaw_results$mu, function(x) x[1])
+    # mu_theta_sigma_eta <- sapply(rvgaw_results$mu, function(x) x[2])
+    # mu_theta_sigma_eps <- sapply(rvgaw_results$mu, function(x) x[3])
+
+    # var_theta_phi <- sapply(rvgaw_results$prec, function(x) 1/x[1,1])
+    # var_theta_sigma <- sapply(rvgaw_results$prec, function(x) 1/x[2,2])
+
+    mu_theta <- rvgaw_results$mu
+    var_theta <- lapply(rvgaw_results$prec, function(Q) {
+        chol_Q <- chol(Q)
+        Q_inv <- chol2inv(chol_Q)
+    })
+
+    # phi_sample_ls <- lapply(1:length(mu_theta_phi), function(i) {
+    #     tanh(rnorm(10000, mu_theta_phi[i], sqrt(var_theta_phi[i])))
+    # })
+
+    # sigma_eta_sample_ls <- lapply(1:length(mu_theta_sigma), function(i) {
+    #     sqrt(exp(rnorm(10000, mu_theta_sigma[i], sqrt(var_theta_sigma[i]))))
+    # })
+
+    theta_sample_ls <- lapply(1:length(mu_theta), function(i) {
+        rmvnorm(10000, mu_theta[[i]], var_theta[[i]])
+    })
+
+    if (transform == "arctanh") {
+        mu_phi <- sapply(theta_sample_ls, function(x) mean(tanh(x[, 1])))
+    } else { # logit transform
+        mu_phi <- sapply(theta_sample_ls, function(x) mean(exp(x[, 1]) / (1 + exp(x[, 1]))))
+    }
+
+    mu_sigma_eta <- sapply(theta_sample_ls, function(x) mean(sqrt(exp(x[, 2]))))
+    mu_sigma_eps <- sapply(theta_sample_ls, function(x) mean(sqrt(exp(x[, 3]))))
+
+    # if (transform == "arctanh") {
+    #     mu_phi <- tanh(mu_phi)
+    # } else { # logit transform
+    #     mu_phi <- exp(mu_phi) / (1 + exp(mu_phi))
+    # }
+    # mu_sigma_eta <- sqrt(exp(mu_sigma_eta))
+    # mu_sigma_eps <- sqrt(exp(mu_sigma_eps))
 
     block_df <- data.frame(cutoff = n_indiv)
 
@@ -359,97 +450,4 @@ if (plot_trajectories) {
     print(trajectory_plot)
 
     dev.off()
-
-    par(mfrow = c(2,1))
-    # coda::traceplot(hmc.phi_mcmc, density = T)
-    # coda::traceplot(hmc.sigma_eta_mcmc, density = T)
-    # coda::traceplot(hmcw.phi_mcmc, density = T)
-    # coda::traceplot(hmcw.sigma_eta_mcmc, density = T)
-    
-    # true_df <- data.frame(
-    #     param = c("phi", "sigma[eta]"),
-    #     value = c(phi, sigma_eta)
-    # )
-
-    # hmc.df <- data.frame(
-    # phi = hmc.phi,
-    # sigma_eta = hmc.sigma_eta
-    # )
-    # names(hmc.df) <- param_names
-
-    # hmcw.df <- data.frame(
-    #     phi = hmcw.phi,
-    #     sigma_eta = hmcw.sigma_eta
-    # )
-    # names(hmcw.df) <- param_names    
-    
-    hmc.df_long <- hmc.df %>% 
-        mutate(n = row_number()) %>% 
-        pivot_longer(
-            cols = !n,
-            names_to = "param", values_to = "value"
-        )
-
-    hmc_thin.df_long <- hmc_thin.df %>% 
-    mutate(n = row_number()) %>% 
-    pivot_longer(
-        cols = !n,
-        names_to = "param", values_to = "value"
-    )
-
-    hmcw.df_long <- hmcw.df %>% mutate(n = row_number()) %>% 
-    pivot_longer(
-        cols = !n,
-        names_to = "param", values_to = "value"
-    )
-
-    ## Traceplots
-    hmc.traceplot <- hmc.df_long %>% ggplot() + geom_line(aes(x = n, y = value), linewidth = 1) +
-        geom_hline(data = true_df, aes(yintercept = value), col = "red", 
-                    linetype = "dashed", linewidth = 1.5) +
-        facet_wrap(~param, scales = "free", labeller = label_parsed) +
-        theme_bw() +
-        theme(text = element_text(size = 28)) +
-        xlab("Iterations") +
-        ylab("Value")
-
-    print(hmc.traceplot)
-
-     hmc_thin.traceplot <- hmc_thin.df_long %>% ggplot() + geom_line(aes(x = n, y = value), linewidth = 1) +
-        geom_hline(data = true_df, aes(yintercept = value), col = "red", 
-                    linetype = "dashed", linewidth = 1.5) +
-        facet_wrap(~param, scales = "free", labeller = label_parsed) +
-        theme_bw() +
-        theme(text = element_text(size = 28)) +
-        xlab("Iterations") +
-        ylab("Value")
-
-    print(hmc_thin.traceplot)
-
-    hmcw.traceplot <- hmcw.df_long %>% ggplot() + geom_line(aes(x = n, y = value), linewidth = 1) +
-        geom_hline(data = true_df, aes(yintercept = value), col = "red", 
-                    linetype = "dashed", linewidth = 1.5) +
-        facet_wrap(~param, scales = "free", labeller = label_parsed) +
-        theme_bw() +
-        theme(text = element_text(size = 28)) +
-        xlab("Iterations") +
-        ylab("Value")
-
-    print(hmcw.traceplot)
-
-    if (save_plots)  {
-        png("./plots/lgss_hmc_traceplot.png", width = 1500, height = 500)
-        print(hmc.traceplot)
-        dev.off()
-
-        png("./plots/lgss_hmc_traceplot_thin.png", width = 1500, height = 500)
-        print(hmc_thin.traceplot)
-        dev.off()
-
-        png("./plots/lgss_hmcw_traceplot.png", width = 1500, height = 500)
-        print(hmcw.traceplot)
-        dev.off()
-
-    }
-
 }

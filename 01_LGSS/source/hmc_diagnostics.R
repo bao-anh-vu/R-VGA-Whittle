@@ -1,13 +1,12 @@
 ## MCMC diagnostics for the HMC model
 
 hmc_diagnostics <- function(hmc_samples) {
-
     # R-hat
     hmc.Rhat <- sapply(hmc_samples, posterior::rhat)
-    
+
     # ACF
     acf_lags <- c(0, 1, 5, 10, 20, 50, 100)
-    hmc.acf <- lapply(hmc_samples, autocorr, lags = acf_lags, relative = F)
+    hmc.acf <- lapply(hmc_samples, function(x) autocorr(mcmc(x), lags = acf_lags, relative = F))
 
     # ESS
     hmc.ESS <- sapply(hmc_samples, effectiveSize)

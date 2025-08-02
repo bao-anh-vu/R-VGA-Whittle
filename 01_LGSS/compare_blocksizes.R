@@ -32,8 +32,8 @@ source("./source/find_cutoff_freq.R")
 result_directory <- "./results/blocksize_test/"
 
 ## Flags
-rerun_test <- F
-save_rvgaw_results <- F
+rerun_test <- T
+save_rvgaw_results <- T
 save_plots <- T
 
 date <- "20230525"
@@ -65,10 +65,16 @@ reorder <- 0 #"decreasing"
 reorder_seed <- 2024
 # decreasing <- T
 transform <- "arctanh"
-power_prop <- 1/2
+power_prop <- 1/2#, 1/5, 1/10, or set to 0 for no individual cutoff frequency
 nsegs <- 25
-welch_output <- find_cutoff_freq(y, nsegs = nsegs, power_prop = power_prop)
-n_indiv <- welch_output$cutoff_ind #500
+
+if (power_prop == 0) {
+  n_indiv <- 0 # No individual cutoff frequency, start blocking from the beginning
+} else {
+  welch_output <- find_cutoff_freq(y, nsegs = nsegs, power_prop = power_prop)
+  n_indiv <- welch_output$cutoff_ind #500
+}
+
 blocksizes <- c(0, 10, 50, 100, 300, 500, 1000)
 
 if (use_tempering) {
