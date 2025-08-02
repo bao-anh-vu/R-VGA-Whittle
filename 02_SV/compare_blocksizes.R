@@ -32,12 +32,12 @@ source("./source/find_cutoff_freq.R")
 result_directory <- "./results/blocksize_test/"
 
 ## Flags
-rerun_test <- F
-save_rvgaw_results <- F
-save_plots <- F
+rerun_test <- T
+save_rvgaw_results <- T
+save_plots <- T
 
 date <- 20240214
-n <- 10000
+n <- 2000
 phi <- 0.99
 
 ## For the result filename
@@ -66,10 +66,91 @@ reorder <- 0 #"decreasing"
 reorder_seed <- 2024
 # decreasing <- T
 transform <- "arctanh"
-nsegs <- 25
-power_prop <- 1/2
+nsegs <- 5
+power_prop <- 1/10
 welch_output <- find_cutoff_freq(y, nsegs = nsegs, power_prop = power_prop)
 n_indiv <- welch_output$cutoff_ind #100
+
+
+## Plot periodogram 
+pdg_plot <- welch_output$pdg_plot 
+
+# pgram_output <- compute_periodogram(y)
+# freq <- pgram_output$freq
+# pdg <- pgram_output$periodogram
+# freq_welch <- welch_output$freq_welch
+# pdg_welch <- welch_output$pdg_welch
+
+# pdg_df <- data.frame(freq = freq, pdg = pdg)
+# pdg_welch_df <- data.frame(freq = freq_welch, pdg = pdg_welch)
+# pg_plot <- pdg_df %>% ggplot(aes(x = freq, y = pdg)) +
+#   geom_line() +
+#   geom_line(data = pdg_welch_df, aes(x = freq, y = pdg), color = "cyan") +
+#   geom_vline(xintercept = freq[n_indiv], linetype = "dashed", color = "red") +
+#   labs(x = "Frequency", y = "Periodogram") +
+#   xlim(c(0, 0.5)) +
+#   theme_bw() +
+#   theme(text = element_text(size = 24))
+# print(pg_plot)
+
+if (save_plots) {
+  periodogram_plot <- paste0("periodogram_sv_sim_power", 1/power_prop, "_", date, ".png")
+  filepath = paste0("./plots/blocksize_test/", periodogram_plot)
+  png(filepath, width = 800, height = 400)
+  print(pdg_plot)
+  dev.off()
+}
+
+browser()
+
+## Plot all cutoff freqs in one plot
+welch_power2 <- find_cutoff_freq(y, nsegs = nsegs, power_prop = 1/2)
+welch_power4 <- find_cutoff_freq(y, nsegs = nsegs, power_prop = 1/4)
+welch_power5 <- find_cutoff_freq(y, nsegs = nsegs, power_prop = 1/5)
+# welch_power8 <- find_cutoff_freq(y, nsegs = nsegs, power_prop = 1/8)
+welch_power10 <- find_cutoff_freq(y, nsegs = nsegs, power_prop = 1/10)
+
+power2_cutoff <- welch_power2$cutoff_freq
+power4_cutoff <- welch_power4$cutoff_freq
+power5_cutoff <- welch_power5$cutoff_freq
+# power8_cutoff <- welch_power8$cutoff_freq
+power10_cutoff <- welch_power10$cutoff_freq
+
+welch_pdg_df <- data.frame(freq = welch_power2$freq_welch, pdg = welch_power2$pdg_welch)
+# welch_power5_df <- data.frame(freq = welch_power5$freq_welch, pdg = welch_power5$pdg_welch)
+# welch_power10_df <- data.frame(freq = welch_power10$freq_welch, pdg = welch_power10$pdg_welch)
+
+y_tilde <- log(y^2) - mean(log(y^2))
+pdg_og <- compute_periodogram(y_tilde)
+pdg_df <- data.frame(freq = pdg_og$freq, pdg = pdg_og$periodogram)
+
+pdg_plot <- pdg_df %>% ggplot(aes(x = freq, y = pdg)) +
+                        geom_line() +
+                        geom_line(data = welch_pdg_df, aes(x = freq, y = pdg), 
+                                    color = "salmon", linewidth = 1.5) +
+                        geom_vline(xintercept = power2_cutoff, 
+                                    linetype = 2, color = "red", linewidth = 1.5) +
+                        # geom_line(data = welch_power5_df, aes(x = freq, y = pdg), 
+                        #             color = "salmon", linewidth = 1.5) +
+                        # geom_vline(xintercept = power4_cutoff, 
+                        #             linetype = 3, color = "mediumpurple", linewidth = 1) +
+                        geom_vline(xintercept = power5_cutoff, 
+                                    linetype = 3, color = "cornflowerblue", linewidth = 1.5) +
+                        # geom_vline(xintercept = power8_cutoff, 
+                        #             linetype = 3, color = "goldenrod", linewidth = 1) +
+                        geom_vline(xintercept = power10_cutoff, 
+                                    linetype = 4, color = "mediumpurple", linewidth = 1.5) +
+                        labs(x = "Angular frequency (rad/s)", y = "Power") +
+                        xlim(c(0, 1)) +
+                        theme_bw() +
+                        theme(text = element_text(size = 28))
+
+png("./plots/blocksize_test/cutoff_freqs_sv_sim.png", width = 800, height = 400)
+print(pdg_plot)
+dev.off()
+
+browser()
+## Experiment with different block sizes
 blocksizes <- c(0, 10, 50, 100, 300, 500, 1000)
 # blocksizes <- 1000
 
@@ -229,77 +310,4 @@ if (save_plots) {
   dev.off()
 } 
 
-## Plot periodogram 
-pdg_plot <- welch_output$pdg_plot 
 
-# pgram_output <- compute_periodogram(y)
-# freq <- pgram_output$freq
-# pdg <- pgram_output$periodogram
-# freq_welch <- welch_output$freq_welch
-# pdg_welch <- welch_output$pdg_welch
-
-# pdg_df <- data.frame(freq = freq, pdg = pdg)
-# pdg_welch_df <- data.frame(freq = freq_welch, pdg = pdg_welch)
-# pg_plot <- pdg_df %>% ggplot(aes(x = freq, y = pdg)) +
-#   geom_line() +
-#   geom_line(data = pdg_welch_df, aes(x = freq, y = pdg), color = "cyan") +
-#   geom_vline(xintercept = freq[n_indiv], linetype = "dashed", color = "red") +
-#   labs(x = "Frequency", y = "Periodogram") +
-#   xlim(c(0, 0.5)) +
-#   theme_bw() +
-#   theme(text = element_text(size = 24))
-# print(pg_plot)
-
-if (save_plots) {
-  periodogram_plot <- paste0("periodogram_sv_sim_power", 1/power_prop, "_", date, ".png")
-  filepath = paste0("./plots/blocksize_test/", periodogram_plot)
-  png(filepath, width = 800, height = 400)
-  print(pdg_plot)
-  dev.off()
-}
-
-## Plot all cutoff freqs in one plot
-welch_power2 <- find_cutoff_freq(y, nsegs = nsegs, power_prop = 1/2)
-welch_power4 <- find_cutoff_freq(y, nsegs = nsegs, power_prop = 1/4)
-welch_power5 <- find_cutoff_freq(y, nsegs = nsegs, power_prop = 1/5)
-# welch_power8 <- find_cutoff_freq(y, nsegs = nsegs, power_prop = 1/8)
-welch_power10 <- find_cutoff_freq(y, nsegs = nsegs, power_prop = 1/10)
-
-power2_cutoff <- welch_power2$cutoff_freq
-power4_cutoff <- welch_power4$cutoff_freq
-power5_cutoff <- welch_power5$cutoff_freq
-# power8_cutoff <- welch_power8$cutoff_freq
-power10_cutoff <- welch_power10$cutoff_freq
-
-welch_pdg_df <- data.frame(freq = welch_power2$freq_welch, pdg = welch_power2$pdg_welch)
-# welch_power5_df <- data.frame(freq = welch_power5$freq_welch, pdg = welch_power5$pdg_welch)
-# welch_power10_df <- data.frame(freq = welch_power10$freq_welch, pdg = welch_power10$pdg_welch)
-
-y_tilde <- log(y^2) - mean(log(y^2))
-pdg_og <- compute_periodogram(y_tilde)
-pdg_df <- data.frame(freq = pdg_og$freq, pdg = pdg_og$periodogram)
-
-pdg_plot <- pdg_df %>% ggplot(aes(x = freq, y = pdg)) +
-                        geom_line() +
-                        geom_line(data = welch_pdg_df, aes(x = freq, y = pdg), 
-                                    color = "salmon", linewidth = 1.5) +
-                        geom_vline(xintercept = power2_cutoff, 
-                                    linetype = 2, color = "red", linewidth = 1.5) +
-                        # geom_line(data = welch_power5_df, aes(x = freq, y = pdg), 
-                        #             color = "salmon", linewidth = 1.5) +
-                        # geom_vline(xintercept = power4_cutoff, 
-                        #             linetype = 3, color = "mediumpurple", linewidth = 1) +
-                        geom_vline(xintercept = power5_cutoff, 
-                                    linetype = 3, color = "cornflowerblue", linewidth = 1.5) +
-                        # geom_vline(xintercept = power8_cutoff, 
-                        #             linetype = 3, color = "goldenrod", linewidth = 1) +
-                        geom_vline(xintercept = power10_cutoff, 
-                                    linetype = 4, color = "mediumpurple", linewidth = 1.5) +
-                        labs(x = "Angular frequency (rad/s)", y = "Power") +
-                        xlim(c(0, 1)) +
-                        theme_bw() +
-                        theme(text = element_text(size = 28))
-
-png("./plots/blocksize_test/cutoff_freqs_sv_sim.png", width = 800, height = 400)
-print(pdg_plot)
-dev.off()

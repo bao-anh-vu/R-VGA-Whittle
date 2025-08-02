@@ -10,7 +10,7 @@ library(stochvol)
 ### Find the closest possible Beta(a, b) distribution to the R-VGAW prior for phi
 ### Calculate 3 quantiles c(0.025, 0.5, 0.975) and match it to those from the R-VGAW prior
 
-N <- 50000
+N <- 100000
 qs <- c(0.05, 0.5, 0.95)
 rvgaw_phi <- tanh(rnorm(N, 2, sqrt(0.5)))
 rvgaw_phi_q <- quantile(rvgaw_phi, probs = qs)
@@ -30,7 +30,7 @@ phi_quantiles <- function(params, N, rvgaw_quantiles) {
     return(diff) # Return the sum of absolute differences between quantiles
 }
 
-optim_phi <- optim(par = c(10, 1), fn = phi_quantiles, N = N, rvgaw_quantiles = rvgaw_phi_q)
+optim_phi <- optim(par = c(2, 0), fn = phi_quantiles, N = N, rvgaw_quantiles = rvgaw_phi_q)
 phi_hpars <- exp(optim_phi$par)
 
 ## Do the same for sigma_eta
@@ -45,12 +45,15 @@ sigma_quantiles <- function(params, N, rvgaw_quantiles) {
 
     stv_quantiles <- quantile(stv_sigma, probs = qs)
     
-    diff <- sum((stv_quantiles - rvgaw_quantiles)^2)
+    weights <- c(5, 1, 1)
+    diff <- weights * (stv_quantiles - rvgaw_quantiles)^2
     cat("r = ", r, "diff = ", diff, "\n")
+    diff <- sum(diff)
 
     return(diff) # Return the sum of absolute differences between quantiles
 }
-optim_sigma <- optim(par = 10, fn = sigma_quantiles, N = N, 
+
+optim_sigma <- optim(par = 0, fn = sigma_quantiles, N = N, 
                     rvgaw_quantiles = rvgaw_sigma_q,
                     method = "Brent", lower = 0.001, upper = 100)
 sigma_hpars <- exp(optim_sigma$par)

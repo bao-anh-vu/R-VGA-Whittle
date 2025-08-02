@@ -51,8 +51,8 @@ date <- "20240214" #"20230918" #the 20230918 version has sigma_eta = sqrt(0.1)
 # date <- "20230918"
 
 ## R-VGA flags
-regenerate_data <- F
-save_data <- F
+regenerate_data <- T
+save_data <- T
 use_tempering <- T
 temper_first <- T
 reorder <- 0 #"decreasing" # or decreasing # or a number
@@ -68,12 +68,12 @@ burn_in <- 5000 # per chain
 n_chains <- 2
 
 ## Flags
-rerun_rvgaw <- F
+rerun_rvgaw <- T
 rerun_mcmcw <- F
 rerun_hmc <- F
 rerun_hmcw <- F
 
-save_rvgaw_results <- F
+save_rvgaw_results <- T
 save_mcmcw_results <- F
 save_hmc_results <- F
 save_hmcw_results <- F
@@ -88,7 +88,7 @@ phi <- 0.99
 sigma_eta <- 0.1 #sqrt(0.1)
 sigma_eps <- 1
 kappa <- 2
-n <- 10000
+n <- 1000000
 
 ## For the result filename
 phi_string <- sub("(\\d+)\\.(\\d+)", "\\1\\2", toString(phi)) ## removes decimal point fron the number
