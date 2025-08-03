@@ -19,18 +19,17 @@ library(grid)
 library(gridExtra)
 library(gtable)
 library(latex2exp)
+library(stochvol)
 
 source("./source/compute_periodogram.R")
 source("./source/find_cutoff_freq.R")
-
+source("./source/hmc_diagnostics.R")
 
 ## Flags
 date <- "20240214" # "20230918" #the 20230918 version has sigma_eta = sqrt(0.1)
 # date <- "20230918"
 
 ## R-VGA flags
-# regenerate_data <- F
-# save_data <- F
 use_tempering <- T
 temper_first <- T
 reorder <- 0 # "decreasing" # or decreasing # or a number
@@ -39,14 +38,11 @@ plot_prior <- F
 plot_likelihood_surface <- F
 prior_type <- ""
 transform <- "arctanh"
-plot_trajectories <- T
+plot_trajectories <- F
 save_plots <- F
 
-# n_post_samples <- 10000 # per chain
-# burn_in <- 5000 # per chain
-# n_chains <- 2
 
-n <- 10000
+n <- 2000 # 0
 phi <- 0.99
 
 ## Read data
@@ -67,7 +63,7 @@ result_directory <- paste0("./results/", transform, "/")
 S <- 1000L
 # nblocks <- 100
 blocksize <- 100
-n_indiv <- find_cutoff_freq(y, nsegs = 25, power_prop = 1 / 2)$cutoff_ind # 100
+n_indiv <- find_cutoff_freq(y, nsegs = 5, power_prop = 1 / 2)$cutoff_ind # 100
 
 if (use_tempering) {
     n_temper <- 5
@@ -106,6 +102,12 @@ rvgaw_filepath <- paste0(
     "_phi", phi_string, temper_info, reorder_info, block_info,
     prior_type, "_", date, ".rds"
 )
+
+stv_filepath <- paste0(
+    result_directory, "stv_results_n", n,
+    "_phi", phi_string, "_", date, ".rds"
+)
+
 hmc_filepath <- paste0(
     result_directory, "hmc_results_n", n,
     "_phi", phi_string, "_", date, ".rds"
@@ -116,116 +118,125 @@ hmcw_filepath <- paste0(
 )
 
 rvgaw_results <- readRDS(rvgaw_filepath)
+stv_results <- readRDS(stv_filepath)
 hmc_results <- readRDS(hmc_filepath)
 hmcw_results <- readRDS(hmcw_filepath)
 
-rvgaw.phi <- rvgaw_results$post_samples$phi
-rvgaw.sigma_eta <- rvgaw_results$post_samples$sigma_eta
+## Extract posterior samples
+rvgaw_samples <- rvgaw_results$post_samples
+hmc_samples <- hmc_results$draws
+hmcw_samples <- hmcw_results$draws
 
-hmc.phi <- c(hmc_results$draws[, , 1]) # tanh(hmc.theta_phi)
-hmc.sigma_eta <- c(hmc_results$draws[, , 2]) # sqrt(exp(hmc.theta_sigma))
+stv_params <- para(stv_results, chain = "all")[, sampled_parameters(stv_results)]
+stv.df <- as.data.frame(as.matrix(stv_params))
+stv.df <- stv.df %>% select(phi, sigma) # sigma is the same as sigma_eta
+# params_df_long <- pivot_longer(params_df, cols = everything(), names_to = "param", values_to = "val")
 
-hmcw.phi <- c(hmcw_results$draws[, , 1])
-hmcw.sigma_eta <- c(hmcw_results$draws[, , 2])
+## Trace plots
+png(paste0("./plots/hmc_sv_trace_n", n, ".png"), width = 1200, height = 600)
+bayesplot::color_scheme_set("viridis")
+bayesplot::mcmc_trace(hmc_samples)
+dev.off()
+
+png(paste0("./plots/hmcw_sv_trace_n", n, ".png"), width = 1200, height = 600)
+bayesplot::color_scheme_set("viridis")
+bayesplot::mcmc_trace(hmcw_samples)
+dev.off()
+
+# png(filename = paste0("./plots/stochvol_phi", phi_string, "_n", n, "_", date, ".png"), width = 800, height = 600)
+# plot(stv_results, showobs = FALSE)
+# dev.off()
+
+########################################
+##          MCMC diagnostics          ##
+########################################
 
 param_names <- c("phi", "sigma[eta]")
+param_values <- c(phi, sigma_eta)
 param_dim <- length(param_names)
 
-## HMC and HMCW trace plots
-hmc.phi_mcmc <- mcmc(hmc.phi)
-hmc.sigma_eta_mcmc <- mcmc(hmc.sigma_eta)
-hmcw.phi_mcmc <- mcmc(hmcw.phi)
-hmcw.sigma_eta_mcmc <- mcmc(hmcw.sigma_eta)
+burn_in <- 1000
+hmc_samples <- hmc_samples[-(1:burn_in), , ]
+hmcw_samples <- hmcw_samples[-(1:burn_in), , ]
 
-## Estimation of kappa
-# mean_log_eps2 <- digamma(1/2) + log(2)
-# log_kappa2 <- mean(log(y^2)) - mean_log_eps2
-# kappa <- sqrt(exp(log_kappa2))
+## HMC
+hmc_samples_ls <- lapply(1:param_dim, function(i) {
+    c(hmc_samples[, , i])
+})
+hmc_dns <- hmc_diagnostics(hmc_samples_ls)
 
-########################################
-##          Posterior plots           ##
-########################################
+## HMCW
+hmcw_samples_ls <- lapply(1:param_dim, function(i) {
+    c(hmcw_samples[, , i])
+})
+hmcw_dns <- hmc_diagnostics(hmcw_samples_ls)
 
-hmc.ESS <- c()
-hmc.IF <- c()
-hmc.acf <- list()
+## Stochvol
+stv_samples_ls <- list(
+    stv.df$phi,
+    stv.df$sigma
+)
+stv_dns <- hmc_diagnostics(stv_samples_ls)
 
-hmcw.ESS <- c()
-hmcw.IF <- c()
-hmcw.acf <- list()
+hmc.Rhat <- round(hmc_dns$Rhat, 4)
+hmcw.Rhat <- round(hmcw_dns$Rhat, 4)
+hmc.ESS <- round(hmc_dns$ESS, 2)
+hmcw.ESS <- round(hmcw_dns$ESS, 2)
 
-
-## ACF, ESS and inefficiency factor
-hmc.acf[[1]] <- autocorr(hmc.phi_mcmc, lags = c(0, 1, 5, 10, 20, 50, 100), relative = F)
-hmc.acf[[2]] <- autocorr(hmc.sigma_eta_mcmc, lags = c(0, 1, 5, 10, 20, 50, 100), relative = F)
-
-hmc.ESS[1] <- effectiveSize(hmc.phi_mcmc)
-hmc.ESS[2] <- effectiveSize(hmc.sigma_eta_mcmc)
-hmc.IF[1] <- length(hmc.phi_mcmc) / hmc.ESS[1]
-hmc.IF[2] <- length(hmc.sigma_eta_mcmc) / hmc.ESS[2]
-
-hmcw.acf[[1]] <- autocorr(hmcw.phi_mcmc, lags = c(0, 1, 5, 10, 20, 50, 100), relative = F)
-hmcw.acf[[2]] <- autocorr(hmcw.sigma_eta_mcmc, lags = c(0, 1, 5, 10, 20, 50, 100), relative = F)
-
-hmcw.ESS[1] <- effectiveSize(hmcw.phi_mcmc)
-hmcw.ESS[2] <- effectiveSize(hmcw.sigma_eta_mcmc)
-hmcw.IF[1] <- length(hmcw.phi_mcmc) / hmcw.ESS[1]
-hmcw.IF[2] <- length(hmcw.sigma_eta_mcmc) / hmcw.ESS[2]
-
-## Thinning
-thin_interval <- 100
-hmc.phi_thin <- as.vector(window(hmc.phi_mcmc, thin = thin_interval))
-hmc.sigma_eta_thin <- as.vector(window(hmc.sigma_eta_mcmc, thin = thin_interval))
-
-hmcw.phi_thin <- as.vector(window(hmcw.phi_mcmc, thin = 1))
-hmcw.sigma_eta_thin <- as.vector(window(hmcw.sigma_eta_mcmc, thin = 1))
-
-rvgaw.df <- data.frame(
-    phi = rvgaw.phi,
-    sigma_eta = rvgaw.sigma_eta
+methods <- c("HMC-Whittle", "HMC-exact")
+metrics <- c("Rhat", "ESS")
+dns <- data.frame(
+    params = rep(param_names, times = 2),
+    metrics = rep(metrics, each = 4),
+    method = rep(methods, each = 2),
+    value = c(hmcw.Rhat, hmc.Rhat, hmcw.ESS, hmc.ESS)
 )
 
-hmc.df <- data.frame(
-    phi = hmc.phi,
-    sigma_eta = hmc.sigma_eta
-)
+write.csv(dns, file = paste0("./results/sv_sim_diagnostics", block_info, ".csv"), row.names = F)
 
-hmc_thin.df <- data.frame(
-    phi = hmc.phi_thin,
-    sigma_eta = hmc.sigma_eta_thin
-)
-hmcw.df <- data.frame(
-    phi = hmcw.phi_thin,
-    sigma_eta = hmcw.sigma_eta_thin
-)
+
+## Turning the samples into data frames
+rvgaw.df <- data.frame(do.call(cbind, rvgaw_samples))
+hmc.df <- data.frame(do.call(cbind, hmc_samples_ls))
+hmcw.df <- data.frame(do.call(cbind, hmcw_samples_ls))
 
 names(rvgaw.df) <- param_names
 names(hmc.df) <- param_names
-names(hmc_thin.df) <- param_names
 names(hmcw.df) <- param_names
+names(stv.df) <- param_names
 
-# true_vals.df <- data.frame(phi = phi, sigma_eta = sigma_eta)
+## Thinning if needed
+thin_interval <- 1
+inds <- seq(1, nrow(hmc.df), by = thin_interval)
+hmc_thin.df <- hmc.df[inds, ]
 
-## Posterior plots
-param_values <- c(phi, sigma_eta)
+##############################
+##      Posterior plots     ##
+##############################
 
 plots <- list()
 
+xlims <- list(
+    c(phi - 0.015, phi + 0.01),
+    c(sigma_eta - 0.1, sigma_eta + 0.15)
+)
 for (p in 1:param_dim) {
     true_vals.df <- data.frame(name = param_names[p], val = param_values[p])
 
     plot <- ggplot(rvgaw.df, aes(x = .data[[param_names[p]]])) +
         geom_density(col = "red", lwd = 1) +
+        geom_density(data = stv.df, col = "black", lwd = 1) +
         geom_density(data = hmcw.df, col = "goldenrod", lwd = 1) +
         geom_density(data = hmc_thin.df, col = "deepskyblue", lwd = 1) +
         geom_vline(
             data = true_vals.df, aes(xintercept = val),
             color = "black", linetype = "dashed", linewidth = 1
         ) +
+        xlim(xlims[[p]]) +
         labs(x = vars) +
         theme_bw() +
-        theme(axis.title = element_blank(), text = element_text(size = 24)) +
-        scale_x_continuous(breaks = scales::pretty_breaks(n = 4))
+        theme(axis.title = element_blank(), text = element_text(size = 24)) #+
+    # scale_x_continuous(breaks = scales::pretty_breaks(n = 4))
 
     plots[[p]] <- plot
 }
@@ -251,8 +262,9 @@ for (ind in 1:n_lower_tri) {
 
     cov_plot <- ggplot(rvgaw.df, aes(x = .data[[param_names[q]]], y = .data[[param_names[p]]])) +
         stat_ellipse(col = "red", type = "norm", lwd = 1) +
+        stat_ellipse(data = stv.df, col = "black", type = "norm", lwd = 1) +
         stat_ellipse(data = hmcw.df, col = "goldenrod", type = "norm", lwd = 1) +
-        stat_ellipse(data = hmc.df, col = "deepskyblue", type = "norm", lwd = 1) +
+        stat_ellipse(data = hmc_thin.df, col = "deepskyblue", type = "norm", lwd = 1) +
         geom_point(
             data = param_df, aes(x = x, y = y),
             shape = 4, color = "black", size = 5
@@ -298,13 +310,13 @@ gtable_show_layout(gp)
 gp <- gtable_add_grob(gp, lapply(vars[1:param_dim], editGrob, rot = 90), t = 1:param_dim, l = 1)
 gp <- gtable_add_grob(gp, vars[1:param_dim], t = param_dim + 1, l = 2:(param_dim + 1))
 
-grid.newpage()
-grid.draw(gp)
+# grid.newpage()
+# grid.draw(gp)
 
 if (save_plots) {
     plot_file <- paste0(
-        "sv_sim_posterior", "_", n, temper_info, reorder_info, block_info,
-        "_", transform, "_thinned_", date, ".png"
+        "sv_sim_posterior", "_phi", phi, "_n", n, temper_info, reorder_info, block_info,
+        prior_type, "_", transform, "_thinned_", date, ".png"
     )
     filepath <- paste0("./plots/", plot_file)
     png(filepath, width = 800, height = 600)
@@ -315,29 +327,168 @@ if (save_plots) {
 
 ## Timing comparison
 rvgaw.time <- rvgaw_results$time_elapsed[3]
-hmcw.time <- sum(hmcw_results$time()$chains$total)
-hmc.time <- sum(hmc_results$time()$chains$total)
+stv.time <- stv_results$runtime[3]
+hmcw.time <- hmcw_results$time()$total
+hmc.time <- hmc_results$time$total
 print(data.frame(
-    method = c("R-VGA-Whittle", "HMC-Whittle", "HMC-exact"),
-    time = c(rvgaw.time, hmcw.time, hmc.time)
+    method = c("R-VGA-Whittle", "stochvol", "HMC-Whittle", "HMC-exact"),
+    time = c(rvgaw.time, stv.time, hmcw.time, hmc.time)
 ))
 
-## Trajectories/Trace plots
-if (plot_trajectories) {
-    mu_phi <- sapply(rvgaw_results$mu, function(x) x[1])
-    mu_sigma_eta <- sapply(rvgaw_results$mu, function(x) x[2])
-
-    if (transform == "arctanh") {
-        mu_phi <- tanh(mu_phi)
-    } else { # logit transform
-        mu_phi <- exp(mu_phi) / (1 + exp(mu_phi))
-    }
-    mu_sigma_eta <- sqrt(exp(mu_sigma_eta))
-
-    true_df <- data.frame(
+## HMC/HMC-Whittle trace plots
+true_df <- data.frame(
         param = c("phi", "sigma[eta]"),
         value = c(phi, sigma_eta)
     )
+    
+hmc.df_long <- hmc.df %>%
+    mutate(n = row_number()) %>%
+    pivot_longer(
+        cols = !n,
+        names_to = "param", values_to = "value"
+    )
+
+hmc_thin.df_long <- hmc_thin.df %>%
+    mutate(n = row_number()) %>%
+    pivot_longer(
+        cols = !n,
+        names_to = "param", values_to = "value"
+    )
+
+hmcw.df_long <- hmcw.df %>%
+    mutate(n = row_number()) %>%
+    pivot_longer(
+        cols = !n,
+        names_to = "param", values_to = "value"
+    )
+
+stv.df_long <- stv.df %>%
+    mutate(n = row_number()) %>%
+    pivot_longer(
+        cols = !n,
+        names_to = "param", values_to = "value"
+    )
+
+## Traceplots
+hmc.traceplot <- hmc.df_long %>% ggplot() +
+    geom_line(aes(x = n, y = value), linewidth = 1) +
+    geom_hline(
+        data = true_df, aes(yintercept = value), col = "red",
+        linetype = "dashed", linewidth = 1.5
+    ) +
+    facet_wrap(~param, scales = "free", labeller = label_parsed) +
+    theme_bw() +
+    theme(text = element_text(size = 28)) +
+    xlab("Iterations") +
+    ylab("Value")
+
+# print(hmc.traceplot)
+
+hmc_thin.traceplot <- hmc_thin.df_long %>% ggplot() +
+    geom_line(aes(x = n, y = value), linewidth = 1) +
+    geom_hline(
+        data = true_df, aes(yintercept = value), col = "red",
+        linetype = "dashed", linewidth = 1.5
+    ) +
+    facet_wrap(~param, scales = "free", labeller = label_parsed) +
+    theme_bw() +
+    theme(text = element_text(size = 28)) +
+    xlab("Iterations") +
+    ylab("Value")
+
+# print(hmc_thin.traceplot)
+
+hmcw.traceplot <- hmcw.df_long %>% ggplot() +
+    geom_line(aes(x = n, y = value), linewidth = 1) +
+    geom_hline(
+        data = true_df, aes(yintercept = value), col = "red",
+        linetype = "dashed", linewidth = 1.5
+    ) +
+    facet_wrap(~param, scales = "free", labeller = label_parsed) +
+    theme_bw() +
+    theme(text = element_text(size = 28)) +
+    xlab("Iterations") +
+    ylab("Value")
+
+stv.traceplot <- stv.df_long %>% ggplot() +
+    geom_line(aes(x = n, y = value), linewidth = 1) +
+    geom_hline(
+        data = true_df, aes(yintercept = value), col = "red",
+        linetype = "dashed", linewidth = 1.5
+    ) +
+    facet_wrap(~param, scales = "free", labeller = label_parsed) +
+    theme_bw() +
+    theme(text = element_text(size = 28)) +
+    xlab("Iterations") +
+    ylab("Value")
+
+# print(hmcw.traceplot)
+
+if (save_plots) {
+    png("./plots/sv_sim_hmc_traceplot.png", width = 1500, height = 500)
+    print(hmc.traceplot)
+    dev.off()
+
+    png("./plots/sv_sim_hmc_traceplot_thin.png", width = 1500, height = 500)
+    print(hmc_thin.traceplot)
+    dev.off()
+
+    png("./plots/sv_sim_hmcw_traceplot.png", width = 1500, height = 500)
+    print(hmcw.traceplot)
+    dev.off()
+
+    png("./plots/sv_sim_stv_traceplot.png", width = 1500, height = 500)
+    print(stv.traceplot)
+    dev.off()
+}
+
+## Trajectories/Trace plots
+if (plot_trajectories) {
+    mu_theta <- rvgaw_results$mu
+    var_theta <- lapply(rvgaw_results$prec, function(Q) {
+        chol_Q <- chol(Q)
+        Q_inv <- chol2inv(chol_Q)
+    })
+
+    theta_sample_ls <- lapply(1:length(mu_theta), function(i) {
+        rmvnorm(10000, mu_theta[[i]], var_theta[[i]])
+    })
+
+    if (transform == "arctanh") {
+        mu_phi <- sapply(theta_sample_ls, function(x) mean(tanh(x[, 1])))
+    } else { # logit transform
+        mu_phi <- sapply(theta_sample_ls, function(x) mean(exp(x[, 1]) / (1 + exp(x[, 1]))))
+    }
+
+    mu_sigma_eta <- sapply(theta_sample_ls, function(x) mean(sqrt(exp(x[, 2]))))
+
+    # mu_theta_phi <- sapply(rvgaw_results$mu, function(x) x[1])
+    # mu_theta_sigma <- sapply(rvgaw_results$mu, function(x) x[2])
+
+    # var_theta_phi <- sapply(rvgaw_results$prec, function(x) 1/x[1,1])
+    # var_theta_sigma <- sapply(rvgaw_results$prec, function(x) 1/x[2,2])
+
+    # phi_sample_ls <- lapply(1:length(mu_theta_phi), function(i) {
+    #     tanh(rnorm(10000, mu_theta_phi[i], sqrt(var_theta_phi[i])))
+    # })
+
+    # sigma_eta_sample_ls <- lapply(1:length(mu_theta_sigma), function(i) {
+    #     sqrt(exp(rnorm(10000, mu_theta_sigma[i], sqrt(var_theta_sigma[i]))))
+    # })
+
+    # mu_phi <- sapply(phi_sample_ls, mean)
+    # mu_sigma_eta <- sapply(sigma_eta_sample_ls, mean)
+
+    ####
+    # mu_phi <- sapply(rvgaw_results$mu, function(x) x[1])
+    # mu_sigma_eta <- sapply(rvgaw_results$mu, function(x) x[2])
+
+    # if (transform == "arctanh") {
+    #     mu_phi <- tanh(mu_phi)
+    # } else { # logit transform
+    #     mu_phi <- exp(mu_phi) / (1 + exp(mu_phi))
+    # }
+    # mu_sigma_eta <- sqrt(exp(mu_sigma_eta))
 
     block_df <- data.frame(cutoff = n_indiv)
 
@@ -359,101 +510,23 @@ if (plot_trajectories) {
         xlab(TeX("Iteration ($\\tilde{k}$)")) +
         ylab("Value")
 
-    png(paste0("plots/trajectories_sv_sim", block_info, ".png"), width = 1200, height = 500)
+    png(paste0("./plots/trajectories_sv_sim", block_info, ".png"), width = 1200, height = 500)
     print(trajectory_plot)
 
     dev.off()
-
-    par(mfrow = c(2,1))
-    # coda::traceplot(hmc.phi_mcmc, density = T)
-    # coda::traceplot(hmc.sigma_eta_mcmc, density = T)
-    # coda::traceplot(hmcw.phi_mcmc, density = T)
-    # coda::traceplot(hmcw.sigma_eta_mcmc, density = T)
-    
-    # true_df <- data.frame(
-    #     param = c("phi", "sigma[eta]"),
-    #     value = c(phi, sigma_eta)
-    # )
-
-    # hmc.df <- data.frame(
-    # phi = hmc.phi,
-    # sigma_eta = hmc.sigma_eta
-    # )
-    # names(hmc.df) <- param_names
-
-    # hmcw.df <- data.frame(
-    #     phi = hmcw.phi,
-    #     sigma_eta = hmcw.sigma_eta
-    # )
-    # names(hmcw.df) <- param_names    
-    
-    hmc.df_long <- hmc.df %>% 
-        mutate(n = row_number()) %>% 
-        pivot_longer(
-            cols = !n,
-            names_to = "param", values_to = "value"
-        )
-
-    hmc_thin.df_long <- hmc_thin.df %>% 
-    mutate(n = row_number()) %>% 
-    pivot_longer(
-        cols = !n,
-        names_to = "param", values_to = "value"
-    )
-
-    hmcw.df_long <- hmcw.df %>% mutate(n = row_number()) %>% 
-    pivot_longer(
-        cols = !n,
-        names_to = "param", values_to = "value"
-    )
-
-    ## Traceplots
-    hmc.traceplot <- hmc.df_long %>% ggplot() + geom_line(aes(x = n, y = value), linewidth = 1) +
-        geom_hline(data = true_df, aes(yintercept = value), col = "red", 
-                    linetype = "dashed", linewidth = 1.5) +
-        facet_wrap(~param, scales = "free", labeller = label_parsed) +
-        theme_bw() +
-        theme(text = element_text(size = 28)) +
-        xlab("Iterations") +
-        ylab("Value")
-
-    print(hmc.traceplot)
-
-     hmc_thin.traceplot <- hmc_thin.df_long %>% ggplot() + geom_line(aes(x = n, y = value), linewidth = 1) +
-        geom_hline(data = true_df, aes(yintercept = value), col = "red", 
-                    linetype = "dashed", linewidth = 1.5) +
-        facet_wrap(~param, scales = "free", labeller = label_parsed) +
-        theme_bw() +
-        theme(text = element_text(size = 28)) +
-        xlab("Iterations") +
-        ylab("Value")
-
-    print(hmc_thin.traceplot)
-
-    hmcw.traceplot <- hmcw.df_long %>% ggplot() + geom_line(aes(x = n, y = value), linewidth = 1) +
-        geom_hline(data = true_df, aes(yintercept = value), col = "red", 
-                    linetype = "dashed", linewidth = 1.5) +
-        facet_wrap(~param, scales = "free", labeller = label_parsed) +
-        theme_bw() +
-        theme(text = element_text(size = 28)) +
-        xlab("Iterations") +
-        ylab("Value")
-
-    print(hmcw.traceplot)
-
-    if (save_plots)  {
-        png("./plots/sv_sim_hmc_traceplot.png", width = 1500, height = 500)
-        print(hmc.traceplot)
-        dev.off()
-
-        png("./plots/sv_sim_hmc_traceplot_thin.png", width = 1500, height = 500)
-        print(hmc_thin.traceplot)
-        dev.off()
-
-        png("./plots/sv_sim_hmcw_traceplot.png", width = 1500, height = 500)
-        print(hmcw.traceplot)
-        dev.off()
-
-    }
-
 }
+
+## Convergence statistics
+# names(hmc.df) <- c("phi", "sigma_eta")
+# names(hmcw.df) <- c("phi", "sigma_eta")
+# converge_df <- data.frame(
+#     method = c("stochvol", "HMC", "HMCW"),
+#     rhat_phi = c(posterior::rhat(stv.df$phi), posterior::rhat(hmc.df$phi), posterior::rhat(hmcw.df$phi)),
+#     rhat_sigma_eta = c(posterior::rhat(stv.df$sigma), posterior::rhat(hmc.df$sigma_eta), posterior::rhat(hmcw.df$sigma_eta)),
+#     ess_bulk_phi = c(posterior::ess_bulk(stv.df$phi), posterior::ess_bulk(hmc.df$phi), posterior::ess_bulk(hmcw.df$phi)),
+#     ess_bulk_sigma_eta = c(posterior::ess_bulk(stv.df$sigma), posterior::ess_bulk(hmc.df$sigma_eta), posterior::ess_bulk(hmcw.df$sigma_eta)),
+#     ess_tail_phi = c(posterior::ess_tail(stv.df$phi), posterior::ess_tail(hmc.df$phi), posterior::ess_tail(hmcw.df$phi)),
+#     ess_tail_sigma_eta = c(posterior::ess_tail(stv.df$sigma), posterior::ess_tail(hmc.df$sigma_eta), posterior::ess_tail(hmcw.df$sigma_eta))
+# )
+# print(converge_df)
+

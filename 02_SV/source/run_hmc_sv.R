@@ -48,16 +48,21 @@ run_hmc_sv <- function(data, transform = "logit",
   #              model_name="sv", data = sv_data, 
   #              iter = iters, warmup = burn_in, chains=1)
   
-  fit_stan_multi_sv <- sv_model$sample(
+  fit_stan_sv <- sv_model$sample(
     sv_data,
     chains = n_chains,
+    parallel_chains = n_chains,
     threads = parallel::detectCores(),
     refresh = 100,
     iter_warmup = burn_in,
-    iter_sampling = iters
+    iter_sampling = iters,
+    save_warmup = TRUE
   )
   
-  stan_results <- list(draws = fit_stan_multi_sv$draws(variables = c("phi", "sigma_eta")),
-                       time = fit_stan_multi_sv$time)
+  stan_results <- list(draws = fit_stan_sv$draws(variables = c("phi", "sigma_eta"), inc_warmup = TRUE),
+                       time = fit_stan_sv$time(),
+                       summary = fit_stan_sv$summary(variables = c("phi", "sigma_eta")),
+                       metadata = fit_stan_sv$metadata()
+                       )
   return(stan_results)
 }
