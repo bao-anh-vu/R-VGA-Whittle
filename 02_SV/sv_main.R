@@ -17,6 +17,7 @@ library(ggplot2)
 library(grid)
 library(gridExtra)
 library(gtable)
+library(stochvol)
 
 source("./source/compute_whittle_likelihood_sv.R")
 # source("./source/run_rvgaw_sv_tf.R")
@@ -51,8 +52,8 @@ date <- "20240214" #"20230918" #the 20230918 version has sigma_eta = sqrt(0.1)
 # date <- "20230918"
 
 ## R-VGA flags
-regenerate_data <- T
-save_data <- T
+regenerate_data <- F
+save_data <- F
 use_tempering <- T
 temper_first <- T
 reorder <- 0 #"decreasing" # or decreasing # or a number
@@ -63,18 +64,19 @@ prior_type <- ""
 transform <- "arctanh"
 plot_trajectories <- T
 
+## HMC settings
 n_post_samples <- 10000 # per chain 
 burn_in <- 5000 # per chain
 n_chains <- 2
 
 ## Flags
-rerun_rvgaw <- T
-rerun_mcmcw <- F
+rerun_rvgaw <- F
+rerun_stv <- T
 rerun_hmc <- F
 rerun_hmcw <- F
 
-save_rvgaw_results <- T
-save_mcmcw_results <- F
+save_rvgaw_results <- F
+save_stv_results <- T
 save_hmc_results <- F
 save_hmcw_results <- F
 
@@ -85,10 +87,10 @@ result_directory <- paste0("./results/", transform, "/")
 ## Generate data
 mu <- 0
 phi <- 0.99
-sigma_eta <- 0.1 #sqrt(0.1)
+sigma_eta <- 0.4 #sqrt(0.1)
 sigma_eps <- 1
 kappa <- 2
-n <- 1000000
+n <- 2000#0
 
 ## For the result filename
 phi_string <- sub("(\\d+)\\.(\\d+)", "\\1\\2", toString(phi)) ## removes decimal point fron the number
@@ -160,18 +162,18 @@ if (plot_likelihood_surface) {
 
 }
 
-
-
 ########################################
 ##                Prior               ##
 ########################################
 
 if (prior_type == "prior1") {
-  prior_mean <- c(0, -4) #rep(0,2)
-  prior_var <- diag(c(0.5, 0.5)) #diag(1, 2)
+  prior_mean <- c(2, -2) #rep(0,2)
+  prior_var <- diag(c(0.5, 1)) #diag(1, 2)
 } else {
-  prior_mean <- c(2, -3) #rep(0,2)
-  prior_var <- diag(c(0.5, 0.5)) #diag(1, 2)
+  prior_mean <- c(2, -3) # OG
+  prior_var <- diag(c(0.5, 0.5)) #OG
+  # prior_mean <- c(2, -4) # OG
+  # prior_var <- diag(c(1, 1)) #OG
 }
 
 if (plot_prior) {
@@ -188,16 +190,18 @@ if (plot_prior) {
   # par(mfrow = c(2,1))
   hist(prior_phi, main = "Prior of phi")
   hist(prior_eta, main = "Prior of sigma_eta")
+  quantile(prior_phi, c(0.025, 0.975))
+  quantile(prior_eta^2, c(0.025, 0.975))
 }
 
-########################################
-##            R-VGA-Whitle            ##
-########################################
+#########################################
+##            R-VGA-Whittle            ##
+#########################################
 
 S <- 1000L
 # nblocks <- 100
-blocksize <- 100
-n_indiv <- find_cutoff_freq(y, nsegs = 25, power_prop = 1/2)$cutoff_ind #100
+blocksize <- 100 # set to 0 for no blocking
+n_indiv <- find_cutoff_freq(y, nsegs = 5, power_prop = 1/2)$cutoff_ind #100
 
 if (use_tempering) {
   n_temper <- 5
@@ -236,6 +240,7 @@ rvgaw_filepath <- paste0(result_directory, "rvga_whittle_results_n", n,
                          "_phi", phi_string, temper_info, reorder_info, block_info,
                          prior_type, "_", date, ".rds")
 
+
 if (rerun_rvgaw) {
   rvgaw_results <- run_rvgaw_sv(y = y, #sigma_eta = sigma_eta, sigma_eps = sigma_eps, 
                                 prior_mean = prior_mean, prior_var = prior_var, 
@@ -264,6 +269,33 @@ rvgaw.post_samples_sigma_eta <- rvgaw_results$post_samples$sigma_eta
 # rvgaw.post_samples_xi <- rvgaw_results$post_samples$sigma_xi
 
 ###############################
+##   MCMC using stochvol     ## 
+###############################
+
+stv_filepath <- paste0(result_directory, "stv_results_n", n, 
+                         "_phi", phi_string, "_", date, ".rds")
+
+
+if (rerun_stv) {
+
+  stv_results <- svsample(y, designmatrix = "ar1",
+                          # priormu = c(mu_fixed, 1),
+                          priorphi = c(10.777, 0.459),
+                          priorsigma = 19.445,
+                          burnin = 1000,
+                          draws = 14000, #thin = 10, 
+                          n_chains = n_chains) #,
+                          # priormu = c(mu_fixed, 1e-8))
+
+} else {
+  stv_results <- readRDS(stv_filepath)
+}
+
+if (save_stv_results) {
+  saveRDS(stv_results, stv_filepath)
+}
+
+###############################
 ##         HMC-exact         ##
 ###############################
 
@@ -277,9 +309,9 @@ hmc_filepath <- paste0(result_directory, "hmc_results_n", n,
 
 if (rerun_hmc) {
   hmc_results <- run_hmc_sv(data = y, transform = transform,
-                             prior_mean = prior_mean, prior_var = prior_var,
-                             iters = n_post_samples, 
-                             burn_in = burn_in,
+                            prior_mean = prior_mean, prior_var = prior_var,
+                            iters = n_post_samples, 
+                            burn_in = burn_in,
                             n_chains = n_chains)
   
   if (save_hmc_results) {
@@ -330,17 +362,22 @@ if (rerun_hmcw) {
   #              model_name="sv", data = sv_data, 
   #              iter = iters, warmup = burn_in, chains=1)
 
-  fit_stan_multi_sv_whittle <- whittle_sv_model$sample(
+
+  fit_stan_sv_whittle <- whittle_sv_model$sample(
     whittle_sv_data,
     chains = n_chains,
     threads = parallel::detectCores(),
     refresh = 100,
-    iter_warmup = burn_in,
-    iter_sampling = n_post_samples
+    # iter_warmup = burn_in,
+    iter_sampling = 2000,
+    save_warmup = TRUE
   )
 
-  hmcw_results <- list(draws = fit_stan_multi_sv_whittle$draws(variables = c("phi", "sigma_eta")),
-                      time = fit_stan_multi_sv_whittle$time)
+  hmcw_results <- list(draws = fit_stan_sv_whittle$draws(variables = c("phi", "sigma_eta"), inc_warmup = TRUE),
+                      time = fit_stan_sv_whittle$time,
+                      summary = fit_stan_sv_whittle$summary(variables = c("phi", "sigma_eta")),
+                      metadata = fit_stan_sv_whittle$metadata()
+                      )
 
   if (save_hmcw_results) {
     saveRDS(hmcw_results, hmcw_filepath)
@@ -353,8 +390,8 @@ if (rerun_hmcw) {
 # hmcw.fit <- extract(hfit, pars = c("theta_phi", "theta_sigma"),
 #                    permuted = F)
 # 
-hmcw.post_samples_phi <- c(hmcw_results$draws[,,1])
-hmcw.post_samples_sigma_eta <- c(hmcw_results$draws[,,2])
+# hmcw.post_samples_phi <- c(hmcw_results$draws[,,1])
+# hmcw.post_samples_sigma_eta <- c(hmcw_results$draws[,,2])
 
 # ## Timing comparison
 # rvgaw.time <- rvgaw_results$time_elapsed[3]
