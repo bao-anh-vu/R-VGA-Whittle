@@ -13,6 +13,7 @@ library(gridExtra)
 
 source("./source/run_rvgaw_arfima.R")
 source("./source/compute_periodogram.R")
+source("./source/find_cutoff_freq.R")
 source("./source/compute_grad.R")
 source("./source/compute_arfima_spec_dens.R")
 
@@ -57,10 +58,10 @@ data_dir <- "./data/"
 # nu <- arfima_data$nu
 
 set.seed(2025)
-n <- 1000
+n <- 5000
 phi <- 0.3
 theta <- 0.7
-d <- 0.25
+d <- 0.15
 sigma_eta <- 1
 # nu <- 5 #20
 # x <- arfima.sim(n, model = list(phi = phi, dfrac = d, theta = theta, sigma2 = sigma_eta^2))
@@ -68,9 +69,16 @@ x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
 # y <- x + rt(n, df = nu) # ARFIMA + noise
 # y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
 
-# png("sim.png", width = 800, height = 600)
+# png("sim.png", widtch = 800, height = 600)
 # plot(y[1:200], type = "l", main = paste0("ARFIMA(1, ", d, ", 1)"))
 # dev.off()
+
+## MLE fit
+mle_fit <- fracdiff(x, nar = 1, nma = 1)
+mle_phi <- mle_fit$ar
+mle_theta <- -mle_fit$ma
+mle_d <- mle_fit$d
+mle_sigma_eta <- sqrt(mle_fit$sigma)
 
 ## Result directory
 result_dir <- "./results/"
@@ -79,10 +87,12 @@ result_dir <- "./results/"
 date <- "20250514"
 
 ## Common settings for all methods
-n_post_samples <- 10000
-# prior_mean <- c(0, 0, 0, 0)
-prior_mean <- c(atanh(phi), atanh(theta), atanh(2*d), log(sigma_eta^2)) # log(sigma_eta) for better numerical stability
+# prior_mean <- rep(0, 4)
+# prior_mean <- c(atanh(phi), atanh(theta), atanh(2*d), 0)
+prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2)) # log(sigma_eta) for better numerical stability
 prior_var <- 0.5 * diag(c(1, 1, 1, 1)) # identity matrix
+
+?fracdiff 
 
 ## Simulate from prior
 prior_samples <- rmvnorm(10000, prior_mean, prior_var)
@@ -102,7 +112,6 @@ abline(v = d, col = "red", lty = 2)
 plot(density(sigma_eta_samples), main = "sigma_eta", xlim = c(0, 5))
 abline(v = sigma_eta, col = "red", lty = 2) 
 dev.off()
-
             #                             theta = theta_s, 
             #                             d = d_s, 
             #                             sigma = sigma_eta_s, #nu = nu_s,
@@ -116,10 +125,10 @@ use_tempering <- TRUE
 temper_first <- T
 reorder <- 0 #"decreasing"
 blocksize <- 100L #20L
-n_indiv <- 20L
+n_indiv <- find_cutoff_freq(x, nsegs = 25, power_prop = 1/2)$cutoff_ind #100
 
 if (use_tempering) {
-  n_temper <- 100
+  n_temper <- 20
   K <- 100
   temper_schedule <- rep(1/K, K)
   temper_info <- ""

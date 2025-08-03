@@ -24,10 +24,11 @@ source("./source/compute_periodogram.R")
 source("./source/compute_periodogram_uni.R")
 source("./source/find_cutoff_freq.R")
 source("./source/construct_Sigma.R")
+source("./source/hmc_diagnostics.R")
 
 ## Flags
 # plot_trajectories <- T
-save_plots <- F
+save_plots <- T
 
 date <- "20240613" #"20240227" # "20230918" #the 20230918 version has sigma_eta = sqrt(0.1)
 use_cholesky <- T # use lower Cholesky factor to parameterise Sigma_eta
@@ -36,7 +37,7 @@ prior_type <- "prior1"
 use_heaps_mapping <- F
 plot_likelihood_surface <- F
 plot_prior_samples <- F
-plot_trace <- F
+plot_trace <- T
 
 ## R-VGAW flags
 use_tempering <- T #T
@@ -46,14 +47,13 @@ reorder_seed <- 2024
 # decreasing <- T
 use_median <- F
 
-# n_post_samples <- 10000 # per chain
-# burn_in <- 5000 # per chain
-# n_chains <- 2
+## HMC/HMC-Whittle settings
+burn_in <- 1000
+hmcw_iters <- 2000 # per chain
 
 ## Read data
 d <- 2 # bivariate
 Tfin <- 5000
-# phi_string <- sub("(\\d+)\\.(\\d+)", "\\1\\2", toString(phi)) ## removes decimal point fron the number
 print("Reading saved data...")
 multi_sv_data <- readRDS(file = paste0("./data/multi_sv_data_", d, "d_Tfin", Tfin, "_20240227.rds"))
 
@@ -105,11 +105,10 @@ if (!is.null(blocksize)) {
 }
 
 if (prior_type == "minnesota") {
-  prior_type = ""
+  prior_type <- ""
 } else {
-  prior_type = paste0("_", prior_type)
+  prior_type <- paste0("_", prior_type)
 }
-
 
 rvgaw_filepath <- paste0(result_directory, "rvga_whittle_results_Tfin", Tfin, 
                          temper_info, reorder_info, block_info, "_", date, 
@@ -125,25 +124,33 @@ rvgaw_results <- readRDS(rvgaw_filepath)
 hmc_results <- readRDS(hmc_filepath)
 hmcw_results <- readRDS(hmcw_filepath)
 
-rvgaw.Phi <- rvgaw_results$post_samples$Phi
-rvgaw.Sigma_eta <- rvgaw_results$post_samples$Sigma_eta
+rvgaw_samples <- rvgaw_results$post_samples
+hmc_samples <- hmc_results$draws
+hmcw_samples <- hmcw_results$draws[1:(burn_in + hmcw_iters), , ] # take first 3000 samples
 
-hmc.Phi <- hmc_results$draws[,,1:(d^2)]
-hmc.Sigma_eta <- hmc_results$draws[,,(d^2+1):(2*d^2)]
+## Trace plots (before discarding burn-in samples)
+png(paste0("./plots/hmc_trace_n", Tfin, ".png"), width = 1200, height = 600)
+bayesplot::color_scheme_set("viridis")
+bayesplot::mcmc_trace(hmc_samples)
+dev.off()
 
-hmcw.Phi <- hmcw_results$draws[,,1:(d^2)]
-hmcw.Sigma_eta <- hmcw_results$draws[,,(d^2+1):(2*d^2)]
+png(paste0("./plots/hmcw_trace_n", Tfin, ".png"), width = 1200, height = 600)
+bayesplot::color_scheme_set("viridis")
+bayesplot::mcmc_trace(hmcw_samples)
+dev.off()
 
-## HMC and HMCW trace plots
-# hmc.phi_mcmc <- mcmc(hmc.phi)
-# hmc.sigma_eta_mcmc <- mcmc(hmc.sigma_eta)
-# hmcw.phi_mcmc <- mcmc(hmcw.phi)
-# hmcw.sigma_eta_mcmc <- mcmc(hmcw.sigma_eta)
+## Discard burn-in samples
+hmc_samples <- hmc_samples[-(1:burn_in), , ]
+hmcw_samples <- hmcw_samples[-(1:burn_in), , ]
 
-########################################
-##          Posterior plots           ##
-########################################
+# hmc.Phi <- hmc.Phi[-(1:hmc.burn_in),,]
+# hmc.Sigma_eta <- hmc.Sigma_eta[-(1:hmc.burn_in),,]
+# hmcw.Phi <- hmcw.Phi[-(1:hmcw.burn_in),,]
+# hmcw.Sigma_eta <- hmcw.Sigma_eta[-(1:hmcw.burn_in),,]
 
+###################################
+##        MCMC diagnostics       ##
+###################################
 param_names <- c("Phi[11]", "Phi[22]", "Sigma[eta[11]]", "Sigma[eta[21]]", "Sigma[eta[22]]")
 param_dim <- length(param_names)
 param_values <- c(diag(Phi), Sigma_eta[lower.tri(Sigma_eta, diag = T)])
@@ -154,93 +161,76 @@ indmat <- matrix(1:d^2, d, d, byrow = T) # number matrix elements by row
 phi_indices <- diag(indmat) # indices of diagonal elements of Phi
 sigma_indices <- indmat[lower.tri(indmat, diag = T)] # lower triangular elements of Sigma_eta
 
-hmc.ESS <- c()
-hmc.IF <- c()
-hmc.acf <- list()
+## R-VGA-Whittle
+rvgaw_Phi_samples_ls <- list()
+rvgaw_Sigma_samples_ls <- list()
+for (k in phi_indices) {
+  inds <- as.numeric(ind_df[k, ])
+  # i <- as.numeric(ind_df[k, ][1])
+  # j <- as.numeric(ind_df[r, ][2])
+  rvgaw_Phi_samples_ls[[k]] <- sapply(rvgaw_samples$Phi, function(x) x[inds[1], inds[2]])
 
-hmcw.ESS <- c()
-hmcw.IF <- c()
-hmcw.acf <- list()
-
-n_post_samples <- 10000
-n_chains <- 2
-thin_interval <- 50
-rvgaw.post_samples <- matrix(NA, n_post_samples*n_chains, param_dim)
-# hmc.post_samples <- matrix(NA, n_post_samples*n_chains, param_dim)
-# hmc_thin.post_samples <- matrix(NA, n_post_samples*n_chains/thin_interval, param_dim)
-# hmcw.post_samples <- matrix(NA, n_post_samples*n_chains, param_dim)
-hmc.post_samples <- matrix(NA, prod(dim(hmc.Phi)[1:2]), param_dim)
-hmc_thin.post_samples <- matrix(NA, prod(dim(hmc.Phi)[1:2])/thin_interval, param_dim)
-hmcw.post_samples <- matrix(NA, prod(dim(hmcw.Phi)[1:2]), param_dim)
-
-
-# Arrange posterior samples of Phi in a matrix
-for (k in 1:length(phi_indices)) {
-  r <- phi_indices[k]
-  i <- as.numeric(ind_df[r, ][1])
-  j <- as.numeric(ind_df[r, ][2])
-  rvgaw.post_samples[, k] <- sapply(rvgaw.Phi, function(x) x[i,j])
-
-  hmc_samples <- mcmc(c(hmc.Phi[,,r]))
-  hmcw_samples <- mcmc(c(hmcw.Phi[,,r]))
-
-  ## ACF
-  hmc.acf[[k]] <- autocorr(hmc_samples, lags = c(0, 1, 5, 10, 20, 50, 100), relative=F)
-  hmcw.acf[[k]] <- autocorr(hmcw_samples, lags = c(0, 1, 5, 10, 20, 50, 100), relative=F)
-
-  ## Effective Sample Size
-  hmc.ESS[k] <- coda::effectiveSize(hmc_samples)
-  hmcw.ESS[k] <- coda::effectiveSize(hmcw_samples)
-    
-  # Compute Inefficiency factor
-  hmc.IF[k] <- length(hmc_samples)/hmc.ESS[k]
-  hmcw.IF[k] <- length(hmcw_samples)/hmcw.ESS[k]
-
-  ## Thin samples
-  hmc.post_samples[, k] <- as.vector(window(hmc_samples, thin = 1))
-  hmc_thin.post_samples[, k] <- as.vector(window(hmc_samples, thin = thin_interval))
-  hmcw.post_samples[, k] <- as.vector(window(hmcw_samples, thin = 1))
 }
 
-# Arrange posterior samples of Sigma_eta in a matrix
-for (k in 1:length(sigma_indices)) {
-  r <- sigma_indices[k]
-  i <- as.numeric(ind_df[r, ][1])
-  j <- as.numeric(ind_df[r, ][2])
-  rvgaw.post_samples[, k+d] <- sapply(rvgaw.Sigma_eta, function(x) x[i,j])
-
-  hmc_samples <- mcmc(c(hmc.Sigma_eta[,,r]))
-  hmcw_samples <- mcmc(c(hmcw.Sigma_eta[,,r]))
-
-  ## ACF
-  hmc.acf[[k+d]] <- autocorr(hmc_samples, lags = c(0, 1, 5, 10, 20, 50), relative=F)
-  hmcw.acf[[k+d]] <- autocorr(hmcw_samples, lags = c(0, 1, 5, 10, 20, 50), relative=F)
-
-  ## Effective Sample Size
-  hmc.ESS[k+d] <- coda::effectiveSize(hmc_samples)
-  hmcw.ESS[k+d] <- coda::effectiveSize(hmcw_samples)
-    
-  ## Compute Inefficiency factor
-  hmc.IF[k+d] <- length(hmc_samples)/hmc.ESS[k+d^2]
-  hmcw.IF[k+d] <- length(hmcw_samples)/hmcw.ESS[k+d^2]
-
-  ## Thin samples
-  hmc.post_samples[, k+d] <- as.vector(window(hmc_samples))
-  hmc_thin.post_samples[, k+d] <- as.vector(window(hmc_samples, thin = thin_interval))
-  hmcw.post_samples[, k+d] <- as.vector(window(hmcw_samples, thin = 1))
+for (k in sigma_indices) {
+  inds <- as.numeric(ind_df[k, ])
+  rvgaw_Sigma_samples_ls[[k]] <- sapply(rvgaw_samples$Sigma_eta, function(x) x[inds[1], inds[2]])
 }
 
-rvgaw.df <- as.data.frame(rvgaw.post_samples)
-hmc.df <- as.data.frame(hmc.post_samples)
-hmc_thin.df <- as.data.frame(hmc_thin.post_samples)
-hmcw.df <- as.data.frame(hmcw.post_samples)
+rvgaw_samples_ls <- c(rvgaw_Phi_samples_ls, rvgaw_Sigma_samples_ls)
+
+## HMC
+param_indices <- c(phi_indices, d^2 + sigma_indices) # indices out of d^2 parameters
+
+# hmc_Phi_samples_ls <- lapply(phi_indices, function(x) c(hmc.Phi[,,x]))
+# hmc_Sigma_samples_ls <- lapply(sigma_indices, function(x) c(hmc.Sigma_eta[,,x]))
+# hmc_samples_ls <- c(hmc_Phi_samples_ls, hmc_Sigma_samples_ls)
+
+hmc_samples_ls <- lapply(param_indices, function(x) c(hmc_samples[, , x]))
+hmc_dns <- hmc_diagnostics(hmc_samples_ls)
+
+## HMCW
+# hmcw_Phi_samples_ls <- lapply(phi_indices, function(x) c(hmcw.Phi[,,x]))
+# hmcw_Sigma_samples_ls <- lapply(sigma_indices, function(x) c(hmcw.Sigma_eta[,,x]))
+# hmcw_samples_ls <- c(hmcw_Phi_samples_ls, hmcw_Sigma_samples_ls)
+
+hmcw_samples_ls <- lapply(param_indices, function(x) c(hmcw_samples[, , x]))
+hmcw_dns <- hmc_diagnostics(hmcw_samples_ls)
+
+hmc.Rhat <- hmc_dns$Rhat
+hmcw.Rhat <- hmcw_dns$Rhat
+hmc.ESS <- hmc_dns$ESS
+hmcw.ESS <- hmcw_dns$ESS
+
+methods <- c("HMC-Whittle", "HMC-exact")
+metrics <- c("Rhat", "ESS")
+dns <- data.frame(params = rep(param_names, times = 2),
+                  metrics = rep(metrics, each = length(param_names) * 2),
+                  method = rep(methods, each = length(param_names)),
+                  value = formatC(c(hmcw.Rhat, hmc.Rhat, hmcw.ESS, hmc.ESS), 
+                                  format = "f", width = 5))
+
+write.csv(dns, file = paste0(result_directory, "/multi_sv_diagnostics", block_info, ".csv"), row.names = F)
+
+## Turn the samples into data frames
+rvgaw.df <- data.frame(do.call(cbind, rvgaw_samples_ls))
+hmc.df <- data.frame(do.call(cbind, hmc_samples_ls))
+hmcw.df <- data.frame(do.call(cbind, hmcw_samples_ls))
+
 names(rvgaw.df) <- param_names
 names(hmc.df) <- param_names
-names(hmc_thin.df) <- param_names
 names(hmcw.df) <- param_names
 
-plots <- list()
+## Thinning if needed
+thin_interval <- 50
+inds <- seq(1, nrow(hmc.df), by = thin_interval)
+hmc_thin.df <- hmc.df[inds, ]
 
+##############################
+##      Posterior plots     ##
+##############################
+
+plots <- list()
 xlims <- list(c(0.97, 1), c(0.95, 1), c(0, 0.04), c(0, 0.01), c(0, 0.02))
 
 ## Marginal posteriors
@@ -248,8 +238,7 @@ for (p in 1:param_dim) {
   
   true_vals.df <- data.frame(name = param_names[p], val = param_values[p])
 
-
-  plot <- ggplot(rvgaw.df, aes(x=.data[[param_names[p]]])) +
+  plot <- ggplot(data = rvgaw.df, aes(x=.data[[param_names[p]]])) +
     # plot <- ggplot(exact_rvgal.df, aes(x=colnames(exact_rvgal.df)[p])) + 
     geom_density(col = "red", lwd = 1) +
     geom_density(data = hmcw.df, col = "goldenrod", lwd = 1) +
@@ -287,7 +276,7 @@ for (ind in 1:n_lower_tri) {
   
   param_df <- data.frame(x = param_values[q], y = param_values[p])
 
-  cov_plot <- ggplot(rvgaw.df, aes(x = .data[[param_names[q]]], y = .data[[param_names[p]]])) +
+  cov_plot <- ggplot(data = rvgaw.df, aes(x = .data[[param_names[q]]], y = .data[[param_names[p]]])) +
     stat_ellipse(col = "red", type = "norm", lwd = 1) +
     stat_ellipse(data = hmcw.df, col = "goldenrod", type = "norm", lwd = 1) +
     stat_ellipse(data = hmc.df, col = "deepskyblue", type = "norm", lwd = 1) +
@@ -387,11 +376,10 @@ if (save_plots) {
 
 ## Timing comparison
 rvgaw.time <- rvgaw_results$time_elapsed[3]
-hmcw.time <- sum(hmcw_results$time$chains$total)
-hmc.time <- sum(hmc_results$time()$chains$total)
+hmcw.time <- hmcw_results$time$total / dim(hmcw_results$draws)[1] * (burn_in + hmcw_iters)
+hmc.time <- hmc_results$time$total
 print(data.frame(method = c("R-VGA-Whittle", "HMC-Whittle", "HMC-exact"),
                  time = c(rvgaw.time, hmcw.time, hmc.time)))
-
 
 ## R-VGA-Whittle trajectories/trace plots
 # if (plot_trajectories) {

@@ -17,6 +17,7 @@ library(ggplot2)
 library(grid)
 library(gridExtra)
 library(gtable)
+library(stochvol)
 
 source("./source/compute_whittle_likelihood_sv.R")
 # source("./source/run_rvgaw_sv_tf.R")
@@ -67,19 +68,21 @@ use_welch <- F
 
 ## Flags
 rerun_rvgaw <- F
-rerun_mcmcw <- F
-# rerun_mcmce <- F
+# rerun_mcmcw <- F
+rerun_stv <- F
 rerun_hmc <- F
-rerun_hmcw <- F
+rerun_hmcw <- T
 
 save_rvgaw_results <- F
-save_mcmcw_results <- F
+# save_mcmcw_results <- F
+save_stv_results <- F
 save_hmc_results <- F
-save_hmcw_results <- F
+save_hmcw_results <- T
 save_plots <- F
 
-n_post_samples <- 100#00 # per chain 
-burn_in <- 50#00 # per chain
+## HMC/HMC-Whittle settings
+# n_post_samples <- 10000 # per chain 
+# burn_in <- 5000 # per chain
 n_chains <- 2
 
 ## Result directory
@@ -102,11 +105,6 @@ log_data <- mutate_all(dat, function(x) c(0, log(x[2:length(x)] / x[1:(length(x)
 exrates <- log_data[-1, ] # get rid of 1st row
 # Y <- exrates[, 1:nstocks]
 y <- exrates[, currency]
-} else {
-  sv_data <- read.csv(file = "./data/5_Industry_Portfolios_Daily_cleaned.csv")
-  y <- sv_data[1:n, "Cnsmr"]
-  # y <- sv_data[1:n, "HiTec"]
-}
 
 n <- length(y)
 
@@ -151,8 +149,7 @@ if (plot_likelihood_surface) {
 ##           R-VGA-Whittle            ##
 ########################################
 blocksize <- 100
-n_indiv <- find_cutoff_freq(y, nsegs = 25, power_prop = 1/2)$cutoff_ind #100
-# n_indiv <- 100
+n_indiv <- find_cutoff_freq(y, nsegs = 10, power_prop = 1/2)$cutoff_ind #100
 
 S <- 1000L
 
@@ -196,10 +193,10 @@ if (prior_type == "prior1") {
   prior_var <- diag(c(1, 0.5)) #diag(1, 2)
   prior_info <- paste0("_", prior_type)
 } else {
-  prior_mean <- c(2, -3) #rep(0,2) # c(2, -3)
+  prior_mean <- c(2, -3) # OG
   # prior_mean <- c(2, -2) #rep(0,2)
   
-  prior_var <- diag(c(0.5, 0.5)) #diag(1, 2)
+  prior_var <- diag(c(0.5, 0.5)) #OG
   # prior_var <- diag(c(1, 1)) #diag(1, 2)
   
 }
@@ -252,6 +249,32 @@ if (rerun_rvgaw) {
 rvgaw.post_samples_phi <- rvgaw_results$post_samples$phi
 rvgaw.post_samples_sigma_eta <- rvgaw_results$post_samples$sigma_eta
 # rvgaw.post_samples_xi <- rvgaw_results$post_samples$sigma_xi
+
+###############################
+##   MCMC using stochvol     ## 
+###############################
+
+stv_filepath <- paste0(result_directory, "stv_results_", date, ".rds")
+
+if (rerun_stv) {
+
+  stv_results <- svsample(y, designmatrix = "ar1",
+                          # priormu = c(mu_fixed, 1),
+                          priorphi = c(10.777, 0.459),
+                          priorsigma = 19.445,
+                          burnin = 1000,
+                          draws = 14000, #thin = 10, 
+                          n_chains = n_chains) #,
+                          # priormu = c(mu_fixed, 1e-8))
+
+} else {
+  stv_results <- readRDS(stv_filepath)
+}
+
+if (save_stv_results) {
+  saveRDS(stv_results, stv_filepath)
+}
+
 
 #####################################
 ###           HMC-exact           ###
@@ -307,19 +330,24 @@ if (rerun_hmcw) {
                           prior_mean = prior_mean, diag_prior_var = diag(prior_var),
                           transform = ifelse(transform == "arctanh", 1, 0))
 
-  fit_stan_multi_sv_whittle <- whittle_sv_model$sample(
+  fit_stan_sv_whittle <- whittle_sv_model$sample(
     whittle_sv_data,
     chains = n_chains,
+    parallel_chains = n_chains,
     threads = parallel::detectCores(),
     refresh = 100,
-    iter_warmup = burn_in,
-    iter_sampling = n_post_samples
+    # iter_warmup = burn_in,
+    iter_sampling = 2000, #n_post_samples,
+    save_warmup = TRUE
   )
 
-  hmcw_results <- list(draws = fit_stan_multi_sv_whittle$draws(variables = c("phi", "sigma_eta")),
-                      time = fit_stan_multi_sv_whittle$time)
+  hmcw_results <- list(draws = fit_stan_sv_whittle$draws(variables = c("phi", "sigma_eta"), inc_warmup = TRUE),
+                      time = fit_stan_sv_whittle$time(),
+                      summary = fit_stan_sv_whittle$summary(variables = c("phi", "sigma_eta")),
+                      metadata = fit_stan_sv_whittle$metadata()
+                      )
 
-  # hmcw.fit <- extract(fit_stan_multi_sv_whittle, pars = c("theta_phi", "theta_sigma"),
+  # hmcw.fit <- extract(fit_stan_sv_whittle, pars = c("theta_phi", "theta_sigma"),
   #                    permuted = F, inc_warmup = T)
   
   if (save_hmcw_results) {
@@ -335,8 +363,8 @@ hmcw.post_samples_sigma_eta <- c(hmcw_results$draws[,,2])
 
 
 # ## Timing comparison
-# rvgaw.time <- rvgaw_results$time_elapsed[3]
-# hmcw.time <- sum(hmcw_results$time()$chains$total)
+rvgaw.time <- rvgaw_results$time_elapsed[3]
+hmcw.time <- sum(hmcw_results$time$chains$total)
 # hmc.time <- sum(hmc_results$time()$chains$total)
 # print(data.frame(
 #     method = c("R-VGA-Whittle", "HMC-Whittle", "HMC-exact"),

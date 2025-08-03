@@ -18,7 +18,7 @@ source("./source/fit_mle_arfima_ss.R")
 source("./source/find_optimal_nu.R")
 
 ## Flags
-date <- "20250514"
+date <- "20250627_025" # the _2 version has 15k draws per chain, the og has 11k
 noise_dist <- "t" # "t" or "gaussian"
 save_hmcw_results <- T
 fix_sigma <- F # If TRUE, sigma_eta is fixed to 1 in the model
@@ -28,7 +28,7 @@ data_dir <- "./data/"
 result_dir <- "./results/"
 
 ## Read data
-n <- 3000
+n <- 50000
 arfima_data <- readRDS(paste0(data_dir, "arfima_data_n", n, "_", noise_dist, ".rds"))
 y <- arfima_data$y
 phi <- arfima_data$phi
@@ -83,33 +83,9 @@ pgram_output <- compute_periodogram(y)
 freq <- pgram_output$freq
 I <- pgram_output$periodogram
 
-# test <- arfima_spec_dens(phi = phi, 
-#                             theta = theta, 
-#                             d = d, 
-#                             sigma = sigma_eta, 
-#                             nu = nu,
-#                             I = I,
-#                             freq = freq)
-
-# spec_dens <- test$spec_dens_x + test$spec_dens_eps
-# head(spec_dens)
-
-## MLE
-# mle <- fit_mle_arfima_ss1(pdg = I, freq = freq, noise_dist = noise_dist)
-# mle_phi <- mle$par[1]
-# mle_theta <- mle$par[2]
-# mle_d <- mle$par[3]
-# mle_sigma_eta <- mle$par[4]
-# mle_nu <- mle$par[5]
-
-# param_names <- c("phi", "theta", "d", "sigma_eta", "nu")
-# true_vals <- c(phi, theta, d, sigma_eta, nu)
-# mle_df <- data.frame(param = param_names,
-#                       true_vals = true_vals,
-#                       mle = mle$par)
 mle <- fit_mle_arfima_ss1(pdg = I, freq = freq, noise_dist = noise_dist)$par
 
-# mle <- find_optimal_nu(pdg = I, freq = freq, noise_dist = noise_dist)
+# mle2 <- find_optimal_nu(pdg = I, freq = freq, noise_dist = noise_dist)
 
 ## Prior parameters
 mle_phi <- mle[1]
@@ -118,18 +94,30 @@ mle_d <- mle[3]
 mle_sigma_eta <- mle[4]
 mle_nu <- mle[5]
 
+param_names <- c("phi", "theta", "d", "sigma_eta", "nu")
+true_vals <- c(phi, theta, d, sigma_eta, nu)
+
+mle_df <- data.frame(param = param_names,
+                    true_vals = true_vals,
+                    mle = mle)
+print(mle_df)
+
+
 if (noise_dist == "t") {
-prior_mean_nu <- log(mle_nu - 2)
-prior_var_nu <- 0.5 # variance for nu
+  prior_mean_nu <- log(mle_nu - 2)
+  prior_var_nu <- 1 # variance for nu
 } else {
   prior_mean_nu <- log(mle_nu^2)
   prior_var_nu <- 0.5 # variance for nu
 }
 
-# prior_mean <- c(tanh(mle_phi), tanh(mle_theta), 0.5*tanh(mle_d), sqrt(exp(mle_sigma_eta)), sqrt(exp(mle_nu)))
-prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
-diag_prior_var <- c(rep(0.5, 4), prior_var_nu) 
-
+# if (transform == "arctanh") {
+  prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
+  diag_prior_var <- c(0.25, 0.25, 0.25, 1, prior_var_nu) 
+# } else {
+#   prior_mean <- c(logit(mle_phi), logit(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
+#   diag_prior_var <- c(0.5, 0.5, 0.5, 0.5, prior_var_nu) 
+# }
 
 ## Simulate from prior
 prior_samples <- rmvnorm(10000, prior_mean, diag(diag_prior_var))
@@ -158,7 +146,6 @@ plot(density(nu_samples), main = "nu")
 abline(v = nu, col = "red", lty = 2)
 dev.off()
 
-
 #############################
 ##       HMC-Whittle       ##
 #############################
@@ -172,7 +159,6 @@ n_chains <- 2
 n_post_samples <- 10000
 burn_in <- 5000
 
-
 ## HMC-Whittle
 whittle_stan_file <- "./source/arfima_ss_whittle.stan"
 
@@ -184,21 +170,37 @@ whittle_arfima_model <- cmdstan_model(
 whittle_arfima_data <- list(nfreq = length(freq), freqs = freq, periodogram = I,
                             fix_sigma = ifelse(fix_sigma, 1, 0),
                             use_t_noise = ifelse(noise_dist == "t", 1, 0), # 1 for t noise, 0 for gaussian noise
-                            prior_mean = prior_mean, diag_prior_var = diag_prior_var)
+                            prior_mean = prior_mean, 
+                            diag_prior_var = diag_prior_var
+                            )
+
+init_list <- lapply(1:n_chains, function(i) {
+  ini_vals <- rmvnorm(1, prior_mean, diag(diag_prior_var))
+  list(
+    tilde_phi = ini_vals[1],
+    tilde_theta = ini_vals[2],
+    tilde_d = ini_vals[3],
+    tilde_sigma_eta = ini_vals[4],
+    tilde_nu = ini_vals[5]
+  )
+})
 
 fit_stan_arfima_whittle <- whittle_arfima_model$sample(
     whittle_arfima_data,
     chains = n_chains,
     parallel_chains = n_chains,
     threads = parallel::detectCores(),
-    refresh = 500,
-    iter_warmup = burn_in / n_chains,
-    iter_sampling = n_post_samples / n_chains
+    refresh = 250,
+    iter_warmup = burn_in,
+    iter_sampling = n_post_samples,
+    save_warmup = TRUE,
+    init = init_list
 )
 
-hmcw_results <- list(draws = fit_stan_arfima_whittle$draws(variables = c("phi", "theta", "d", "sigma_eta", "nu")),
+hmcw_results <- list(draws = fit_stan_arfima_whittle$draws(variables = c("phi", "theta", "d", "sigma_eta", "nu"), inc_warmup = TRUE),
                     time = fit_stan_arfima_whittle$time(),
-                    summary = fit_stan_arfima_whittle$cmdstan_summary)
+                    summary = fit_stan_arfima_whittle$summary(variables = c("phi", "theta", "d", "sigma_eta", "nu")),
+                    metadata = fit_stan_arfima_whittle$metadata())
 # fit_stan_arfima_whittle$cmdstan_summary()
 # fit_stan_arfima_whittle$diagnostic_summary()
 

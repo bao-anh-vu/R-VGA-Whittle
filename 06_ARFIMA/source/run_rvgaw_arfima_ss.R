@@ -1,7 +1,6 @@
 run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL, 
                            transform = "arctanh",
                            noise_dist = "gaussian",
-                           fix_nu = F,
                            prior_mean = 0, prior_var = 1,
                            deriv = "tf", S = 1000L,
                            n_post_samples = 10000,
@@ -158,15 +157,8 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
 
             a <- a_vals[v]
             
-            if (fix_nu) {
-                P <- chol2inv(chol(prec_temp))
-                samples <- rmvnorm(S, mu_temp, P)
-                nu_samples <- ifelse(noise_dist == "t", 5, 0.2) # fixed value for nu
-                samples <- cbind(samples, nu_samples) # add a column of zeros for nu
-            } else {
-                P <- chol2inv(chol(prec_temp))
-                samples <- rmvnorm(S, mu_temp, P)
-            }
+            P <- chol2inv(chol(prec_temp))
+            samples <- rmvnorm(S, mu_temp, P)
 
             grads <- list()
             hessian <- list()
@@ -179,9 +171,17 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
             freq_i_tf <- tf$constant(freq[blockinds], dtype = "float64")
             I_i_tf <- tf$constant(I[blockinds], dtype = "float64")
 
-            tf_out <- compute_grad(samples_tf, I_i_tf, freq_i_tf,
+            if (transform == "arctanh") {
+                tf_out <- compute_grad(samples_tf, I_i_tf, freq_i_tf,
                                         blocksize = length(blockinds),
                                         noise_dist = noise_dist)
+            
+            } else {
+                tf_out <- compute_grad_logit(samples_tf, I_i_tf, freq_i_tf,
+                                        blocksize = length(blockinds),
+                                        noise_dist = noise_dist)
+            
+            }
             
             # sp <- 2
             # phi_s <- tanh(samples[sp, 1])
@@ -250,20 +250,22 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
 
     theta.post_samples <- rmvnorm(10000, rvgaw.mu_vals[[n_updates+1]], rvgaw.post_var) # these are samples of beta, log(sigma_a^2), log(sigma_e^2)
 
-    rvgaw.phi <- tanh(theta.post_samples[, 1])
-    rvgaw.theta <- tanh(theta.post_samples[, 2])
+    if (transform == "arctanh") {
+        rvgaw.phi <- tanh(theta.post_samples[, 1])
+        rvgaw.theta <- tanh(theta.post_samples[, 2])
+    } else {
+        rvgaw.phi <- exp(theta.post_samples[, 1]) / (1 + exp(theta.post_samples[, 1]))
+        rvgaw.theta <- exp(theta.post_samples[, 2]) / (1 + exp(theta.post_samples[, 2]))
+    } 
+    
     rvgaw.d <- 0.5 * tanh(theta.post_samples[, 3])
     rvgaw.sigma_eta <- sqrt(exp(theta.post_samples[, 4]))
     
-    if (!fix_nu) {
-        if (noise_dist == "t") {
+    if (noise_dist == "t") {
         rvgaw.nu <- 2 + exp(theta.post_samples[, 5]) # nu = 2 + exp(theta.post_samples[, 5])
-        } else { # gaussian
-            rvgaw.nu <- sqrt(exp(theta.post_samples[, 5]))
-        } 
-    } else {
-        rvgaw.nu <- ifelse(noise_dist == "t", 5, 0.2) # fixed value for nu
-    }
+    } else { # gaussian
+        rvgaw.nu <- sqrt(exp(theta.post_samples[, 5]))
+    } 
 
     rvgaw.post_samples <- list(
         phi = rvgaw.phi,

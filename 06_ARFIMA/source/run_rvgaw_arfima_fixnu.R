@@ -1,4 +1,5 @@
 run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL, 
+                            nu, 
                            transform = "arctanh",
                            prior_mean = 0, prior_var = 1,
                            deriv = "tf", S = 1000L,
@@ -38,8 +39,6 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
     #                           I = I, freq = freq)
     # plot(I, type = "l")
     # lines(spec_dens$spec_dens_x, col = "red", lwd = 2)
-
-# browser()
 
     # Reorder the frequencies if needed
     if (reorder == "decreasing") {
@@ -170,8 +169,10 @@ run_rvgaw_arfima <- function(data, #phi = NULL, sigma_eta = NULL,
             freq_i_tf <- tf$Variable(freq[blockinds], dtype = "float64")
             I_i_tf <- tf$Variable(I[blockinds], dtype = "float64")
 
+            nu_tf <- tf$Variable(nu, dtype = "float64")
             tf_out <- compute_grad(samples_tf, I_i_tf, freq_i_tf,
-                                        blocksize = length(blockinds))
+                                    blocksize = length(blockinds),
+                                    nu = nu_tf, noise_dist = noise_dist)
             
             # sp <- 2
             # phi_s <- tanh(samples[sp, 1])

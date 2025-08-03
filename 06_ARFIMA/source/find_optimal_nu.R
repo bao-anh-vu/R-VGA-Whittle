@@ -21,8 +21,6 @@ find_optimal_nu <- function(pdg, freq, noise_dist = "t") {
     abline(v = nu_vals[[ind]], col = "red", lty = 2)
     dev.off()
 
-browser()
-
     return(mle)
 }
 

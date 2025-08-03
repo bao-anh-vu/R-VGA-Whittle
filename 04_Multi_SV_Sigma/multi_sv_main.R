@@ -3,9 +3,8 @@ rm(list = ls())
 setwd("~/R-VGA-Whittle/04_Multi_SV_Sigma/")
 
 ## Flags
-# date <- "20230920" #"20230918" has 5D, "20230920" has 3D
-# date <- "20230918"
-date <- "20240613" #"20240227"
+date <- "20240613" 
+# date <- "20250627"
 regenerate_data <- F
 save_data <- F
 use_cholesky <- T # use lower Cholesky factor to parameterise Sigma_eta
@@ -13,19 +12,19 @@ transform <- "arctanh"
 prior_type <- "prior1"
 use_heaps_mapping <- F
 plot_likelihood_surface <- F
-plot_prior_samples <- T
+plot_prior_samples <- F
 plot_trace <- F
 plot_trajectories <- F
 save_plots <- F
 
 rerun_rvgaw <- F
 rerun_mcmcw <- F
-rerun_hmc <- F
+rerun_hmc <- T
 rerun_hmcw <- F
 
 save_rvgaw_results <- F
 save_mcmcw_results <- F
-save_hmc_results <- F
+save_hmc_results <- T
 save_hmcw_results <- F
 
 ## R-VGAW flags
@@ -37,10 +36,10 @@ reorder_seed <- 2024
 use_median <- F
 # nblocks <- 100
 
-## HMC flags
-n_post_samples <- 10000
-burn_in <- 5000
-n_chains <- 2
+# ## HMC flags
+# n_post_samples <- 10000
+# burn_in <- 5000
+# n_chains <- 2
 
 library(mvtnorm)
 library(astsa)
@@ -107,13 +106,6 @@ if (regenerate_data) {
 #  if (dataset == "5") {
     Phi <- diag(c(0.99, 0.98))
     Sigma_eta <- matrix(c(0.02, 0.005, 0.005, 0.01), 2, 2)
-  # } else if (dataset == "hmc_est") {
-  #   Phi <- diag(c(0.96, 0.97))
-  #   Sigma_eta <- matrix(c(0.18, 0.11, 0.11, 0.125), 2, 2)
-  # } else { # generate a random Phi matrix
-  #   Phi <- matrix(c(0.7, 0, 0, 0.8), 2, 2)
-  #   Sigma_eta <- matrix(c(0.4, 0.05, 0.05, 0.2), 2, 2)
-  # } 
   
   x1 <- rep(0, d)
   X <- matrix(NA, nrow = Tfin+1, ncol = d) # x_0:T
@@ -154,6 +146,7 @@ for (k in 1:d) {
 # hist(Y[1,])
 # hist(Y[2,])
 # browser()
+
 ############################ Plot periodogram ##################################
 # Z <- log(Y^2) - colMeans(log(Y^2))
 # pgram_out <- compute_periodogram(Z)
@@ -193,7 +186,6 @@ result_directory <- paste0("./results/", d, "d/")
 ## Change prior to new set of parameters -- maybe just put priors on Phi_11, Phi_22
 ## Constrain so that Phi_11 and Phi_22 are both in (-1,1) -- use arctanh() for this?
 ## Parameterise Sigma_eta = LL^T and put prior on LL^T
-
 
 ## Construct initial distribution/prior
 prior <- construct_prior(data = Y, prior_type = prior_type, use_cholesky = use_cholesky)
@@ -432,8 +424,6 @@ c1 <- find_cutoff_freq(Y[, 1], nsegs = nsegs, power_prop = power_prop)$cutoff_in
 c2 <- find_cutoff_freq(Y[, 2], nsegs = nsegs, power_prop = power_prop)$cutoff_ind
 n_indiv <- max(c1, c2)
 
-# browser()
-
 if (use_tempering) {
   n_temper <- 5
   K <- 100
@@ -633,14 +623,18 @@ if (rerun_hmc) {
   fit_stan_multi_sv <- multi_sv_model$sample(
     multi_sv_data,
     chains = n_chains,
+    parallel_chains = n_chains,
     threads = parallel::detectCores(),
     refresh = 100,
-    iter_warmup = burn_in,
-    iter_sampling = n_post_samples
+    iter_warmup = 5000,
+    iter_sampling = 10000,
+    save_warmup = TRUE
   )
   
-  hmc_results <- list(draws = fit_stan_multi_sv$draws(variables = c("Phi_mat", "Sigma_eta_mat")),
-                       time = fit_stan_multi_sv$time)
+  hmc_results <- list(draws = fit_stan_multi_sv$draws(variables = c("Phi_mat", "Sigma_eta_mat"), inc_warmup = TRUE),
+                       time = fit_stan_multi_sv$time(),
+                       summary = fit_stan_multi_sv$summary(),
+                       metadata = fit_stan_multi_sv$metadata())
   
   if (save_hmc_results) {
     saveRDS(hmc_results, hmc_filepath)
@@ -719,14 +713,18 @@ if (rerun_hmcw) {
   fit_stan_multi_sv_whittle <- multi_sv_model_whittle$sample(
     multi_sv_data_whittle,
     chains = n_chains,
+    parallel_chains = n_chains,
     threads = parallel::detectCores(),
     refresh = 100,
-    iter_warmup = burn_in,
-    iter_sampling = n_post_samples
+    # iter_warmup = burn_in,
+    iter_sampling = 10000, #n_post_samples
+    save_warmup = TRUE
   )
   
-  hmcw_results <- list(draws = fit_stan_multi_sv_whittle$draws(variables = c("Phi_mat", "Sigma_eta_mat")),
-                       time = fit_stan_multi_sv_whittle$time())
+  hmcw_results <- list(draws = fit_stan_multi_sv_whittle$draws(variables = c("Phi_mat", "Sigma_eta_mat"), inc_warmup = TRUE),
+                       time = fit_stan_multi_sv_whittle$time(),
+                       summary = fit_stan_multi_sv_whittle$summary(),
+                       metadata = fit_stan_multi_sv_whittle$metadata())
   
   if (save_hmcw_results) {
     saveRDS(hmcw_results, hmcw_filepath)
@@ -741,7 +739,7 @@ hmcw.post_samples_Sigma_eta <- hmcw_results$draws[,,(d^2+1):(2*d^2)]
 
 
 # ## Timings
-# rvgaw.time <- rvgaw_results$time_elapsed[3]
+rvgaw.time <- rvgaw_results$time_elapsed[3]
 # hmcw.time <- sum(hmcw_results$time$chains$total)
 # hmc.time <- sum(hmc_results$time()$chains$total)
 # print(data.frame(method = c("R-VGA-Whittle", "HMC-Whittle", "HMC"),

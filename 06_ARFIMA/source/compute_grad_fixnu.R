@@ -1,5 +1,5 @@
 compute_grad <- tf_function(
-    compute_grad <- function(samples_tf, I_i, freq_i, blocksize, noise_dist = "t") {
+    compute_grad <- function(samples_tf, I_i, freq_i, blocksize, nu, noise_dist = "t") {
         log_likelihood_tf <- 0
         with(tf$GradientTape() %as% tape2, {
             with(tf$GradientTape(persistent = TRUE) %as% tape1, {
@@ -40,8 +40,21 @@ compute_grad <- tf_function(
                 ## spectral density of the latent process
                 spec_dens_x_tf <- tf$multiply(tf$multiply(term1, term2), term3)
                 
-                spec_dens_y_tf <- spec_dens_x_tf #+ spec_dens_eps_tf
- 
+                ## spectral density of the noise
+                if (noise_dist == "t") {
+                    ## t-distributed noise
+                    # spec_dens_eps_tf <- tf$multiply(tf$constant(1 / (2*pi), "float64"), tf$divide(nu_s, nu_s - 2))
+                    spec_dens_eps_tf <- tf$divide(nu, nu - 2)
+                } else {
+                    ## Gaussian noise
+                    spec_dens_eps_tf <- nu^2 #tf$math$exp(samples_tf[, 5])
+                }
+                
+                spec_dens_eps_tf <- tf$reshape(spec_dens_eps_tf, c(1L, 1L, 1L))
+                spec_dens_eps_tf <- tf$tile(spec_dens_eps_tf, c(S, blocksize, 1L))
+
+                spec_dens_y_tf <- spec_dens_x_tf + spec_dens_eps_tf
+
                 I_i <- tf$reshape(I_i, c(1L, blocksize, 1L))
                 # I_tile <- tf$tile(I_i, c(S, 1L, 1L))
                 log_likelihood_tf <- - tf$math$log(spec_dens_y_tf) - 
