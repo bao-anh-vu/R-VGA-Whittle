@@ -59,10 +59,10 @@ reorder_seed <- 2024
 ## Read data
 date <- "20240214"
 phi <- 0.99
-sigma_eta <- 0.1 #sqrt(0.1)
+sigma_eta <- 0.4 #sqrt(0.1)
 sigma_eps <- 1
 kappa <- 2
-n <- 10000
+n <- 2000
 
 ## For the result filename
 phi_string <- sub("(\\d+)\\.(\\d+)", "\\1\\2", toString(phi)) ## removes decimal point fron the number
@@ -86,11 +86,11 @@ prior_var <- diag(c(0.5, 0.5)) #diag(1, 2)
 ########################################
 
 runs <- 10
-S <- 1000L
+S <- 100L
 n_post_samples <- 10000
 blocksize <- 100
 power_prop <- 1/2
-n_indiv <- find_cutoff_freq(y, nsegs = 25, power_prop = power_prop)$cutoff_ind #500
+n_indiv <- find_cutoff_freq(y, nsegs = 5, power_prop = power_prop)$cutoff_ind #500
 # n_indiv <- 100
 transform <- "arctanh"
 

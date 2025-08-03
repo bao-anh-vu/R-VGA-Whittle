@@ -48,46 +48,47 @@ if (length(gpus) > 0) {
 
 
 ## Flags
-date <- "20250514"
+date <- "20250627"
 noise_dist <- "t" # "t" or "gaussian"
 save_rvgaw_results <- T
 fix_nu <- F # whether to fix nu in the MLE estimation
+transform <- "arctanh" # "logit" or "arctanh"
 
 ## Directories
 data_dir <- "./data/"
 result_dir <- "./results/"
 
 ## Read data
-# n <- 3000
-# arfima_data <- readRDS(paste0(data_dir, "arfima_data_n", n, "_", noise_dist, ".rds"))
-# y <- arfima_data$y
-# phi <- arfima_data$phi
-# theta <- arfima_data$theta
-# d <- arfima_data$d
-# sigma_eta <- arfima_data$sigma_eta
-# nu <- arfima_data$nu
+n <- 50000
+arfima_data <- readRDS(paste0(data_dir, "arfima_data_n", n, "_", noise_dist, ".rds"))
+y <- arfima_data$y
+phi <- arfima_data$phi
+theta <- arfima_data$theta
+d <- arfima_data$d
+sigma_eta <- arfima_data$sigma_eta
+nu <- arfima_data$nu
 
 ## Simulate ARFIMA(1, 0.25, 1) process
 # set.seed(2025)         
-n <- 50000
-phi <- 0.3
-theta <- 0.5 #-0.5
-d <- 0.25
-sigma_eta <- 1
+# n <- 50000
+# phi <- 0.3
+# theta <- 0.7 #-0.5
+# d <- 0.25
+# sigma_eta <- 1
 
-if (noise_dist == "t") {
-  nu <- 4 # degrees of freedom for t-distribution
-} else {
-  nu <- 0.2 # standard deviation for Gaussian noise
-}
+# if (noise_dist == "t") {
+#   nu <- 4 # degrees of freedom for t-distribution
+# } else {
+#   nu <- 0.2 # standard deviation for Gaussian noise
+# }
 
-x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
+# x <- fracdiff.sim(n = n, ar = phi, ma = -theta, d = d, sd = sigma_eta)$series
 
-if (noise_dist == "t") {
-  y <- x + rt(n, df = nu) # ARFIMA + noise
-} else {
-  y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
-}
+# if (noise_dist == "t") {
+#   y <- x + rt(n, df = nu) # ARFIMA + noise
+# } else {
+#   y <- x + rnorm(n, mean = 0, sd = nu) # ARFIMA + noise
+# }
 
 
 ## Compute periodogram
@@ -95,10 +96,9 @@ pgram_output <- compute_periodogram(y)
 freq <- pgram_output$freq
 I <- pgram_output$periodogram
 
-# mle <- fit_mle_arfima_ss1(pdg = I, freq = freq, noise_dist = noise_dist)$par
+mle <- fit_mle_arfima_ss1(pdg = I, freq = freq, noise_dist = noise_dist)$par
 
-mle <- find_optimal_nu(pdg = I, freq = freq, noise_dist = noise_dist)
-
+# mle2 <- find_optimal_nu(pdg = I, freq = freq, noise_dist = noise_dist)
 
 ## Prior parameters
 mle_phi <- mle[1]
@@ -115,49 +115,54 @@ mle_df <- data.frame(param = param_names,
                     mle = mle)
 print(mle_df)
 
-browser()
 
 if (noise_dist == "t") {
-prior_mean_nu <- log(mle_nu - 2)
-prior_var_nu <- 0.5 # variance for nu
+  prior_mean_nu <- log(mle_nu - 2)
+  prior_var_nu <- 1 # variance for nu
 } else {
   prior_mean_nu <- log(mle_nu^2)
   prior_var_nu <- 0.5 # variance for nu
 }
 
-logit_fun <- function(x) {
+logit <- function(x) {
   return(log(x / (1 - x)))
 }
-
-prior_mean <- c(atanh(mle_phi), logit_fun(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
-# prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
-diag_prior_var <- c(rep(0.5, 4), prior_var_nu) 
 
 inv_logit <- function(x) {
   return(exp(x) / (1 + exp(x)))
 }
 
+if (transform == "arctanh") {
+  prior_mean <- c(atanh(mle_phi), atanh(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
+  diag_prior_var <- c(0.25, 0.25, 0.25, 1, prior_var_nu) 
+} else {
+  prior_mean <- c(logit(mle_phi), logit(mle_theta), atanh(2*mle_d), log(mle_sigma_eta^2), prior_mean_nu)
+  diag_prior_var <- c(0.5, 0.5, 0.5, 0.5, prior_var_nu) 
+}
+
 ## Simulate from prior
 prior_samples <- rmvnorm(10000, prior_mean, diag(diag_prior_var))
-phi_samples <- tanh(prior_samples[, 1])
-# theta_samples <- tanh(prior_samples[, 2])
-theta_samples <- inv_logit(prior_samples[, 2])
+
+if (transform == "arctanh") {
+  phi_samples <- tanh(prior_samples[, 1])
+  theta_samples <- tanh(prior_samples[, 2])
+} else {
+  phi_samples <- inv_logit(prior_samples[, 1])
+  theta_samples <- inv_logit(prior_samples[, 2])
+}
 
 d_samples <- 0.5 * tanh(prior_samples[, 3]) 
 sigma_eta_samples <- sqrt(exp(prior_samples[, 4]))
-# nu_samples <- 2 + exp(prior_samples[, 5])
 
-if (!fix_nu) {
-  if (noise_dist == "t") {
-    nu_samples <- 2 + exp(prior_samples[, 5])
-  } else {# gaussian
-    nu_samples <- sqrt(exp(prior_samples[, 5]))
-  }
+if (noise_dist == "t") {
+  nu_samples <- 2 + exp(prior_samples[, 5])
+} else {# gaussian
+  nu_samples <- sqrt(exp(prior_samples[, 5]))
 }
 
-png(paste0("./plots/prior_", noise_dist, ".png"), width = 800, height = 600)
+png(paste0("./plots/prior_", noise_dist, "_n", n, ".png"), width = 800, height = 600)
 par(mfrow = c(2, 3))
-plot(density(phi_samples), main = "phi", xlim = c(-1, 1))
+plot(density(phi_samples), main = "phi", xlim = c(0, 1))
 abline(v = phi, col = "red", lty = 2)
 plot(density(theta_samples), main = "theta", xlim = c(0, 1))
 abline(v = theta, col = "red", lty = 2)
@@ -165,12 +170,10 @@ plot(density(d_samples), main = "d", xlim = c(0, 1))
 abline(v = d, col = "red", lty = 2)
 plot(density(sigma_eta_samples), main = "sigma_eta", xlim = c(0, 5))
 abline(v = sigma_eta, col = "red", lty = 2) 
-if (!fix_nu) {
-  plot(density(nu_samples), main = "nu", xlim = c(0, 20))
-  abline(v = nu, col = "red", lty = 2)
-}
+plot(density(nu_samples), main = "nu", xlim = c(0, 20))
+abline(v = nu, col = "red", lty = 2)
 dev.off()
-browser()
+
 ##########################################
 ##            R-VGA-Whittle             ##
 ##########################################
@@ -178,7 +181,7 @@ S <- 1000L
 use_tempering <- TRUE
 temper_first <- T
 reorder <- 0 #"decreasing"
-blocksize <- 50L
+blocksize <- 100L
 # n_indiv <- 20L
 n_indiv <- find_cutoff_freq(y, nsegs = 25, power_prop = 1/2)$cutoff_ind #100
 n_post_samples <- 10000
@@ -271,7 +274,7 @@ for (p in 1:length(param_names)) {
     plots[[p]] <- plot
 }
 
-png(paste0("./plots/rvgaw_posterior_arfima_ss_", noise_dist, ".png"), width = 800, height = 600)
+png(paste0("./plots/rvgaw_posterior_arfima_ss_", noise_dist, "_n", n, ".png"), width = 800, height = 600)
 grid.arrange(grobs = plots, ncol = 3)
 dev.off()
 
@@ -297,9 +300,15 @@ test <- lapply(1:length(rvgaw_results$mu), function(i) {
   rmvnorm(1000, rvgaw_results$mu[[i]], vars[[i]])
 })
 
-transform_to_og_space <- function(scaled_params, noise_dist) {
-  phi <- tanh(scaled_params[, 1])
-  theta <- tanh(scaled_params[, 2])
+transform_to_og_space <- function(scaled_params, transform, noise_dist) {
+  
+  if (transform == "arctanh") {
+    phi <- tanh(scaled_params[, 1])
+    theta <- tanh(scaled_params[, 2])
+  } else {
+    phi <- inv_logit(scaled_params[, 1])
+    theta <- inv_logit(scaled_params[, 2])
+  }
   d <- 0.5 * tanh(scaled_params[, 3])
   sigma_eta <- sqrt(exp(scaled_params[, 4]))
 
@@ -311,7 +320,7 @@ transform_to_og_space <- function(scaled_params, noise_dist) {
   return(cbind(phi, theta, d, sigma_eta, nu))
 }
 
-og_params <- lapply(test, transform_to_og_space, noise_dist = noise_dist) 
+og_params <- lapply(test, transform_to_og_space, transform = transform, noise_dist = noise_dist) 
 og_param_means <- lapply(og_params, colMeans)
 phi_means <- sapply(og_param_means, function(x) x[1])
 theta_means <- sapply(og_param_means, function(x) x[2]) 
@@ -319,7 +328,7 @@ d_means <- sapply(og_param_means, function(x) x[3])
 sigma_eta_means <- sapply(og_param_means, function(x) x[4])
 nu_means <- sapply(og_param_means, function(x) x[5])
 
-png("./plots/rvgaw_arfima_means.png", width = 800, height = 600)
+png(paste0("./plots/rvgaw_arfima_means_", noise_dist, "_n", n, ".png"), width = 800, height = 600)
 par(mfrow = c(2, 3))
 plot(phi_means, type = "l", main = "phi", xlab = "Iteration", ylab = "Value")
 abline(h = phi, col = "red", lty = 2)
